@@ -129,6 +129,19 @@ Open `http://<server-ip>:8090`, log in with any username and your password.
 - **Remove** deletes a model's files. Files that another installed model shares (for example the same text encoder) are kept.
 - **Tabs 24 GB / 16 GB / 12 GB** show the recipes for each card size. Your own card's tab is marked "yours". Recipes for a bigger card than yours are shown for reference but can't be started.
 
+### Auto-tune and new releases
+
+The recipes were measured on an RTX 3090. **Auto-tune** (under the Lab list) measures them on your card instead:
+
+1. **Checks for new releases.** It downloads the newest model list from this GitHub repo. Models added since your copy show up with a `new` badge, ready to get and run. Then it looks at recent uploads on Hugging Face from the publishers in `watch` (in `recipes.json`) and lists the ones that could fit your card but have no recipe yet, with links. Those need a recipe before RigUp can run them.
+2. **Tunes every installed Lab model.** It starts each one with its recipe settings. If the model doesn't fit, it lowers the context length until it starts. On vLLM, if there's memory to spare, it tries a longer context. Then it times a ~400 token answer and reads the VRAM in use.
+3. **Saves the results** for your GPU. Rows show a `tuned` badge with your own context, tok/s and VRAM, and switching to that model uses the tuned settings from then on. A model that can't fit at all gets `no fit`.
+4. **Puts back** whatever was running before.
+
+It takes a few minutes per installed model. Downloads aren't part of it: get the models you want first.
+
+**Share results** opens a GitHub issue on this repo, prefilled with your GPU name, VRAM, driver version and the tuned numbers. Nothing is sent until you press Submit on GitHub. Results from 12 and 16 GB cards are especially welcome, since those recipes are estimates.
+
 ### Gated models
 
 FLUX 3 Klein and LTX-2.5 require accepting a license on Hugging Face before download:
@@ -316,6 +329,7 @@ Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://githu
 rigup/
 ├── install.sh          one-time setup
 ├── server.py           dashboard + API (Python standard library only)
+├── test_server.py      self-check for the parts that need no GPU: python3 test_server.py
 ├── recipes.json        every model: files, launch flags, sizes, measured numbers
 ├── web/                the dashboard page
 └── data/               created at install; not in git
@@ -324,7 +338,10 @@ rigup/
     ├── comfyui/        ComfyUI install, model packs, workflows, outputs
     ├── open-webui/     chat history and accounts
     ├── cache/          vLLM compile cache, so later starts are faster
-    └── installed/      one marker file per finished download
+    ├── installed/      one marker file per finished download
+    ├── tuned.json      auto-tune results for your GPU
+    ├── catalog.json    newest model list from GitHub, fetched by auto-tune
+    └── releases.json   recent Hugging Face models with no recipe yet
 ```
 
 ## Adding a model
@@ -342,6 +359,8 @@ The dashboard can start, stop and delete things, so it always asks for a passwor
 
 ComfyUI (:8188) and the LLM API (:8000) have no login of their own, so keep the server on a trusted network or behind a firewall. Open WebUI (:3000) has its own accounts; the first account you create becomes the admin.
 
+Auto-tune is the only feature that contacts anything besides Hugging Face downloads. It reads `recipes.json` from this GitHub repo and the public Hugging Face model list. New models from the GitHub list run with the launch flags written there, the same as if you had run `git pull`. Recipes you already have only change when you update your copy.
+
 ## Troubleshooting
 
 - **A model fails to start:** the Console shows the engine's last log lines. Out-of-memory usually means the context is too long for your card; lower `-c` (llama.cpp) or `--max-model-len` (vLLM) in `recipes.json`.
@@ -355,7 +374,7 @@ ComfyUI (:8188) and the LLM API (:8000) have no login of their own, so keep the 
 sudo systemctl disable --now rigup
 sudo rm /etc/systemd/system/rigup.service
 docker rm -f rigup-llm rigup-comfy rigup-webui
-rm -rf data/            # deletes every downloaded model and chat history
+sudo rm -rf data/       # deletes every downloaded model and chat history (sudo: the engines write some files as root)
 ```
 
 Docker, the NVIDIA driver and the container toolkit stay installed.

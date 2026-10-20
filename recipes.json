@@ -1,5 +1,6 @@
 {
-  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>.",
+  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>. watch: Hugging Face authors that auto-tune checks for new models without a recipe yet.",
+  "watch": ["Qwen", "unsloth", "google", "mistralai", "Comfy-Org", "black-forest-labs", "Lightricks"],
   "images": {
     "vllm": "vllm/vllm-openai:v0.26.0",
     "llamacpp": "ghcr.io/ggml-org/llama.cpp:server-cuda-b11669",

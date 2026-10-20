@@ -13,19 +13,54 @@ API (all behind the dashboard password; POSTs need the X-Requested-With header):
   POST /api/install     {"id": ...}   download only
   POST /api/uninstall   {"id": ...}   delete files no other installed model uses
   POST /api/token       {"token": ...}   Hugging Face token for gated models
+  POST /api/autotune    check for new releases, then find the best settings for each installed Lab model on this GPU
 """
-import base64, getpass, hashlib, hmac, json, os, secrets, shutil, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request
+import base64, getpass, hashlib, hmac, json, os, re, secrets, shutil, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.abspath(os.environ.get("RIGUP_DATA", os.path.join(ROOT, "data")))
 PORT = int(os.environ.get("RIGUP_PORT", "8090"))
 CONFIG = os.path.join(DATA, "config.json")
-RECIPES = json.load(open(os.path.join(ROOT, "recipes.json")))
-IMAGES = RECIPES["images"]
-MODELS = {m["id"]: {**m, "group": "llm"} for m in RECIPES["llm"]} | {m["id"]: {**m, "group": "comfy"} for m in RECIPES["comfy"]}
+CATALOG = os.path.join(DATA, "catalog.json")     # newest recipes.json from GitHub, fetched by auto-tune
+RELEASES = os.path.join(DATA, "releases.json")   # recent Hugging Face models from the watch list
+TUNED = os.path.join(DATA, "tuned.json")         # auto-tune results for this GPU
+REPO = "guscanales/rigup"
 PORTS = {"llm": 8000, "comfy": 8188, "webui": 3000}
 HEALTH = {"llm": f"http://127.0.0.1:{PORTS['llm']}/v1/models", "comfy": f"http://127.0.0.1:{PORTS['comfy']}/"}
+
+
+
+def read_json(path, default):
+    try:
+        return json.load(open(path))
+    except (OSError, ValueError):
+        return default
+
+
+def write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        json.dump(obj, f, indent=1)
+    os.replace(path + ".tmp", path)
+
+
+def load_catalog():
+    """recipes.json from this checkout, plus models that only the newer GitHub catalog has (marked new).
+    Existing recipes change only with `git pull`, so a fetched catalog never overrides what you run today."""
+    global RECIPES, IMAGES, MODELS
+    RECIPES = json.load(open(os.path.join(ROOT, "recipes.json")))
+    IMAGES = RECIPES["images"]
+    MODELS = {m["id"]: {**m, "group": g} for g in ("llm", "comfy") for m in RECIPES[g]}
+    up = read_json(CATALOG, {})
+    for g in ("llm", "comfy"):
+        for m in up.get(g, []):
+            if m["id"] not in MODELS:
+                image = up.get("images", {}).get(m.get("engine") or "comfyui")
+                MODELS[m["id"]] = {**m, "group": g, "new": True, **({"image": image} if image else {})}
+
+
+load_catalog()
 
 state = {"busy": None, "target": None, "error": None, "log": [], "dl": None}
 lock = threading.Lock()
@@ -208,7 +243,7 @@ def stop_gpu():
     time.sleep(3)
 
 
-def run_cmd(mid):
+def run_cmd(mid, args=None):
     os.makedirs(os.path.join(DATA, "models"), exist_ok=True)
     if mid == "comfy":
         for d in ("comfyui/run", "comfyui/basedir"):
@@ -218,24 +253,26 @@ def run_cmd(mid):
                 "-e", f"WANTED_UID={os.getuid()}", "-e", f"WANTED_GID={os.getgid()}", "-e", "BASE_DIRECTORY=/basedir",
                 "-e", "SECURITY_LEVEL=normal", "-e", "USE_UV=true", IMAGES["comfyui"]]
     m = MODELS[mid]
+    args = args or args_for(m)
     base = ["docker", "run", "-d", "--name", "rigup-llm", "--label", f"rigup.mode={mid}", "--gpus", "all", "--ipc", "host",
             "-p", f"{PORTS['llm']}:8000", "-v", f"{DATA}/models:/models:ro"]
     if m["engine"] == "vllm":
         os.makedirs(os.path.join(DATA, "cache/vllm"), exist_ok=True)
-        return base + ["-v", f"{DATA}/cache/vllm:/root/.cache/vllm", "-e", "HF_HUB_OFFLINE=1", IMAGES["vllm"],
-                       "--model", f"/models/{m['files'][0]['repo']}", "--served-model-name", mid, *m["args"]]
-    return base + [IMAGES["llamacpp"], *m["args"], "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
+        return base + ["-v", f"{DATA}/cache/vllm:/root/.cache/vllm", "-e", "HF_HUB_OFFLINE=1", m.get("image") or IMAGES["vllm"],
+                       "--model", f"/models/{m['files'][0]['repo']}", "--served-model-name", mid, *args]
+    return base + [m.get("image") or IMAGES["llamacpp"], *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
 
 
-def switch(mid):
+def switch(mid, args=None):
     group = "comfy" if mid == "comfy" else "llm"
     name = "ComfyUI" if mid == "comfy" else MODELS[mid]["name"]
     if mid != "comfy":
         download(MODELS[mid])
     log("stopping whatever holds the GPU")
     stop_gpu()
-    cmd = run_cmd(mid)
-    image = next(a for a in cmd if a in IMAGES.values())
+    cmd = run_cmd(mid, args)
+    images = set(IMAGES.values()) | {m.get("image") for m in MODELS.values()}
+    image = next(a for a in cmd if a in images)
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode:
         log(f"pulling {image} (one time, several GB; vLLM is ~28 GB)")
         sh("docker", "pull", "-q", image)
@@ -273,13 +310,186 @@ def job(kind, mid, fn):
     threading.Thread(target=work, daemon=True).start()
 
 
+# ---------- new releases ----------
+TASKS = {None, "text-generation", "image-text-to-text", "any-to-any", "text-to-image", "image-to-image", "text-to-video", "image-to-video"}
+
+
+def base_name(repo):
+    """'unsloth/Foo-27B-GGUF' -> 'foo-27b': one entry per model, whatever the packaging."""
+    return re.sub(r"(-(gguf|fp8|nvfp4|awq|gptq|int4|int8|w4a16|bnb-4bit|comfy|mlx.*))+$", "", repo.split("/")[-1].lower())
+
+
+def check_releases():
+    """Pull the newest RigUp catalog (new recipes appear in the dashboard marked new), then list recent
+    Hugging Face models from the watch list that have no recipe yet, with a rough size check for this card."""
+    log("checking for new releases")
+    try:
+        req = urllib.request.Request(f"https://raw.githubusercontent.com/{REPO}/main/recipes.json", headers={"User-Agent": "rigup"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            write_json(CATALOG, json.load(r))
+        load_catalog()
+        new = [m["name"] for m in MODELS.values() if m.get("new")]
+        log(f"  RigUp catalog: {', '.join(new) + ' new' if new else 'up to date'}")
+    except Exception as e:
+        log(f"  couldn't read the RigUp catalog: {e}")
+    g = gpu()
+    vram = g["mem_total"] / 1024 if g else 0
+    known = {base_name(s.get("repo") or s["url"].split("huggingface.co/")[-1].split("/resolve/")[0]) for m in MODELS.values() for s in m["files"]}
+    cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 60 * 86400))
+    found = []
+    for author in RECIPES.get("watch", []):
+        try:
+            url = (f"https://huggingface.co/api/models?author={author}&sort=createdAt&direction=-1&limit=30"
+                   "&expand[]=createdAt&expand[]=safetensors&expand[]=gguf&expand[]=pipeline_tag")
+            for x in json.load(hf_open(url)):
+                if any(base_name(x["id"]).startswith(k) for k in known) or x.get("createdAt", "") < cutoff or x.get("pipeline_tag") not in TASKS:
+                    continue
+                known.add(base_name(x["id"]))   # newest first, so other variants of the same model are skipped
+                # Split GGUFs under-report their size, so also trust the "120B" in the name.
+                named = max([float(n) * 1e9 for n in re.findall(r"(\d+(?:\.\d+)?)B(?![a-z])", x["id"].split("/")[-1])] or [0])
+                params = max((x.get("safetensors") or {}).get("total") or 0, (x.get("gguf") or {}).get("total") or 0, named) or None
+                q4 = params * 0.56 / 1e9 if params else None   # ~4.5 bits per weight, the usual 4-bit GGUF/AWQ size
+                if q4 and vram and q4 + 2 > vram:
+                    continue   # won't fit this card even at 4-bit
+                found.append({"id": x["id"], "created": x["createdAt"][:10], "task": x.get("pipeline_tag"),
+                              "params_b": round(params / 1e9, 1) if params else None, "q4_gb": round(q4, 1) if q4 else None})
+        except Exception as e:
+            log(f"  couldn't list {author} on Hugging Face: {e}")
+    found.sort(key=lambda x: x["created"], reverse=True)
+    write_json(RELEASES, {"checked": time.strftime("%Y-%m-%d %H:%M"), "hf": found[:15]})
+    log(f"  Hugging Face: {len(found)} recent model(s) without a recipe that could fit this card")
+
+
+# ---------- auto-tune ----------
+CTX_FLAG = {"vllm": "--max-model-len", "llamacpp": "-c"}
+
+
+def get_flag(args, name):
+    return args[args.index(name) + 1] if name in args else None
+
+
+def set_flag(args, name, value):
+    a = list(args)
+    if name in a:
+        a[a.index(name) + 1] = str(value)
+    else:
+        a += [name, str(value)]
+    return a
+
+
+def tier_of(g):
+    return None if not g else 24 if g["mem_total"] >= 22000 else 16 if g["mem_total"] >= 15000 else 12
+
+
+def args_for(m):
+    """Tuned args when auto-tune found working ones on this exact GPU, else the recipe's."""
+    t, g = read_json(TUNED, {}).get(m["id"]), gpu()
+    return t["args"] if t and t.get("args") and g and t["gpu"] == g["name"] else m["args"]
+
+
+def model_max_ctx(m):
+    """Longest context the model supports, from its config.json (vLLM repos only)."""
+    c = read_json(os.path.join(DATA, "models", m["files"][0].get("repo", "-"), "config.json"), {})
+    return c.get("max_position_embeddings") or c.get("text_config", {}).get("max_position_embeddings")
+
+
+def engine_logs():
+    r = subprocess.run(["docker", "logs", "rigup-llm"], capture_output=True, text=True)
+    return r.stdout + r.stderr
+
+
+def next_ctx(logs, ctx):
+    """After a failed start: the context to retry with, or None if the failure isn't about memory."""
+    est = re.search(r"estimated maximum model length is (\d+)", logs)
+    if est:
+        return int(est[1]) * 95 // 100 // 1024 * 1024
+    if re.search(r"out of memory|cudaMalloc failed|failed to allocate|larger than the available KV cache", logs, re.I):
+        return ctx // 2 // 1024 * 1024
+    return None
+
+
+def measure(mid):
+    """Generation speed in tokens/s: best of two runs of a ~400 token answer (the first warms up)."""
+    body = json.dumps({"model": mid, "max_tokens": 400, "temperature": 0,
+                       "messages": [{"role": "user", "content": "Write a 300 word story about a lighthouse keeper."}]}).encode()
+    best = 0
+    for _ in range(2):
+        t = time.time()
+        req = urllib.request.Request(f"http://127.0.0.1:{PORTS['llm']}/v1/chat/completions", body, {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=600) as r:
+            n = json.load(r)["usage"]["completion_tokens"]
+        best = max(best, n / (time.time() - t))
+    return round(best)
+
+
+def tune(m):
+    args, cf = list(m["args"]), CTX_FLAG[m["engine"]]
+    for _ in range(5):
+        try:
+            switch(m["id"], args)
+            break
+        except RuntimeError:
+            ctx = int(get_flag(args, cf))
+            new = next_ctx(engine_logs(), ctx)
+            if not new:
+                raise
+            if new < 4096:
+                raise RuntimeError("doesn't fit on this card, even with a 4K context") from None
+            log(f"  doesn't fit with {ctx} context, retrying with {new}")
+            args = set_flag(args, cf, new)
+    else:
+        raise RuntimeError("still not starting after 5 tries")
+    # vLLM reports how many full-length requests its KV cache holds. Spare room means a longer context fits.
+    conc = re.search(r"Maximum concurrency for [\d,]+ tokens per request: ([\d.]+)x", engine_logs())
+    ctx, top = int(get_flag(args, cf)), model_max_ctx(m)
+    if conc and top and float(conc[1]) >= 1.25 and ctx < top:
+        bigger = min(top, int(ctx * float(conc[1]) * 0.9) // 1024 * 1024)
+        log(f"  room to spare, trying {bigger} context")
+        try:
+            switch(m["id"], set_flag(args, cf, bigger))
+            args = set_flag(args, cf, bigger)
+        except RuntimeError:
+            log(f"  {bigger} didn't start, keeping {ctx}")
+            switch(m["id"], args)
+    tps, g = measure(m["id"]), gpu()
+    result = {"gpu": g["name"], "args": args, "ctx": int(get_flag(args, cf)), "tps": tps, "vram": round(g["mem_used"] / 1024, 1),
+              "image": m.get("image") or IMAGES[m["engine"]], "date": time.strftime("%Y-%m-%d")}
+    write_json(TUNED, {**read_json(TUNED, {}), m["id"]: result})
+    log(f"  {m['name']}: {result['ctx']} context, {tps} tok/s, {result['vram']} GB VRAM")
+
+
+def autotune():
+    check_releases()
+    g = gpu()
+    if not g:
+        raise RuntimeError("no NVIDIA GPU found")
+    todo = [m for m in MODELS.values() if m["group"] == "llm" and installed(m) and str(tier_of(g)) in m["fit"]]
+    if not todo:
+        log("no installed Lab models to tune; get one first")
+        return
+    run = running()
+    before = run.get("llm") or ("comfy" if "comfy" in run else None)
+    try:
+        for i, m in enumerate(todo, 1):
+            log(f"tuning {m['name']} ({i} of {len(todo)})")
+            try:
+                tune(m)
+            except Exception as e:
+                log(f"  {m['name']}: {e}")
+                write_json(TUNED, {**read_json(TUNED, {}), m["id"]: {"gpu": g["name"], "error": str(e)[:300], "date": time.strftime("%Y-%m-%d")}})
+    finally:
+        log("auto-tune done, putting back what was running")
+        switch(before) if before else stop_gpu()
+
+
 # ---------- status ----------
 def gpu():
     try:
-        out = sh("nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
+        out = sh("nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw,driver_version",
                  "--format=csv,noheader,nounits")
-        name, used, total, util, temp, power = [x.strip() for x in out.splitlines()[0].split(",")]
-        return {"name": name, "mem_used": int(used), "mem_total": int(total), "util": int(util), "temp": int(temp), "power": round(float(power))}
+        name, used, total, util, temp, power, driver = [x.strip() for x in out.splitlines()[0].split(",")]
+        return {"name": name, "mem_used": int(used), "mem_total": int(total), "util": int(util), "temp": int(temp), "power": round(float(power)),
+                "driver": driver}
     except Exception:
         return None
 
@@ -289,10 +499,12 @@ def snapshot():
     mode = run.get("llm") or ("comfy" if "comfy" in run else None)
     healthy = bool(mode) and up(HEALTH["comfy" if mode == "comfy" else "llm"])
     du = shutil.disk_usage(DATA if os.path.isdir(DATA) else "/")
-    tier = None if not g else 24 if g["mem_total"] >= 22000 else 16 if g["mem_total"] >= 15000 else 12
+    tier = tier_of(g)
+    tuned = {k: {f: v for f, v in t.items() if f != "args"} for k, t in read_json(TUNED, {}).items() if g and t.get("gpu") == g["name"]}
     models = [{k: v for k, v in m.items() if k not in ("files", "args")} | {"installed": installed(m)} for m in MODELS.values()]
     return {"gpu": g, "tier": tier, "mode": mode, "healthy": healthy, "disk": {"free_gb": round(du.free / 1e9), "total_gb": round(du.total / 1e9)},
             "models": models, "ports": PORTS, "hf_token": bool(config().get("hf_token")), "now": time.time(),
+            "tuned": tuned, "releases": read_json(RELEASES, {}), "repo": REPO,
             **{k: state[k] for k in ("busy", "target", "error", "log", "dl")}}
 
 
@@ -355,6 +567,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"ok": True})
             if path == "/api/stop":
                 job("stopping", None, stop_gpu)
+            elif path == "/api/autotune":
+                job("tuning", None, autotune)
             elif mid != "comfy" and mid not in MODELS:
                 return self.send(400, {"error": f"unknown model {mid!r}"})
             elif path == "/api/switch":

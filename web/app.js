@@ -26,19 +26,27 @@ function progress(m) {
   return `<span class="lab-go busy" title="${esc(d.file)}">${pct}% · ${esc(d.file.slice(0, 18))}</span>`;
 }
 
+// Auto-tune result for this GPU: badge plus the numbers measured on it, replacing the recipe's.
+function tunedBadge(m) {
+  const t = S.tuned[m.id];
+  if (!t) return '';
+  return t.error ? `<span class="badge fit-estimate" title="${esc(t.error)}">no fit</span>`
+    : `<span class="badge fit-measured" title="Auto-tuned on your ${esc(t.gpu)}, ${esc(t.date)}">tuned</span>`;
+}
+
 function llmRow(m) {
-  const on = S.mode === m.id, k = 'switch:' + m.id;
+  const on = S.mode === m.id, k = 'switch:' + m.id, t = S.tuned[m.id]?.tps ? S.tuned[m.id] : null;
   const btn = progress(m) || (on ? `<span class="lab-go on">${S.healthy ? 'Active' : 'Loading…'}</span>`
     : act(k, m.installed ? `Switch · ${m.start}` : `Get ${gb(m.disk_gb)} GB + switch`, S.mode === 'comfy' ? 'Tap again · ComfyUI stops' : 'Tap again to switch'));
   const rm = m.installed && !on ? act('rm:' + m.id, 'Remove', `Delete ${gb(m.disk_gb)} GB?`, 'data-small') : '';
   return `<div class="lab-row ${on ? 'on' : ''}" title="${esc(m.quant + ' · ' + m.license)}">
-    <span class="lab-name"><span class="led ${on && S.healthy ? '' : 'idle'}"></span><b>${esc(m.name)}${m.vision ? ' <span class="badge vis">vision</span>' : ''} ${fitBadge(m)}</b>
+    <span class="lab-name"><span class="led ${on && S.healthy ? '' : 'idle'}"></span><b>${esc(m.name)}${m.vision ? ' <span class="badge vis">vision</span>' : ''} ${m.new ? '<span class="badge vis">new</span>' : ''} ${S.tuned[m.id] ? tunedBadge(m) : fitBadge(m)}</b>
       <span class="mono dim">${esc(m.engine === 'vllm' ? 'vLLM' : 'llama.cpp')} · ${esc(m.quant)}${m.installed ? '' : ` · ${gb(m.disk_gb)} GB download`}</span>
       <span class="lab-note">${esc(m.note)}</span></span>
-    <span class="lab-stat"><b>${ctx(m.ctx)}</b><i>context</i></span>
-    <span class="lab-stat"><b>${m.tps ?? '—'}</b><i>tok/s</i></span>
+    <span class="lab-stat"><b>${ctx(t ? t.ctx : m.ctx)}</b><i>context</i></span>
+    <span class="lab-stat"><b>${t ? t.tps : m.tps ?? '—'}</b><i>tok/s</i></span>
     <span class="lab-stat">${dots(m.smart)}<i>smarts</i></span>
-    <span class="lab-stat"><b>${m.vram ? (m.fit[tier] === 'estimate' ? '≈' : '') + m.vram : '—'}</b><i>GB VRAM</i></span>
+    <span class="lab-stat"><b>${t ? t.vram : m.vram ? (m.fit[tier] === 'estimate' ? '≈' : '') + m.vram : '—'}</b><i>GB VRAM</i></span>
     <span class="lab-acts">${btn}${rm}</span></div>`;
 }
 
@@ -47,13 +55,30 @@ function comfyRow(m) {
   const btn = progress(m) || (m.installed ? act(k, 'Installed · Remove', `Delete ${gb(m.disk_gb)} GB?`) : act(k, `Install · ${gb(m.disk_gb)} GB`, 'Tap again to download'));
   const lic = /research/i.test(m.license) ? 'warn-t' : '';
   return `<div class="lab-row info ${m.installed ? '' : 'missing'}" title="${esc(m.open + ' · ' + m.license)}">
-    <span class="lab-name"><span class="led ${m.installed && S.mode === 'comfy' ? '' : 'idle'}"></span><b>${esc(m.name)} <span class="badge">${esc(m.kind)}</span> ${fitBadge(m)}</b>
+    <span class="lab-name"><span class="led ${m.installed && S.mode === 'comfy' ? '' : 'idle'}"></span><b>${esc(m.name)} <span class="badge">${esc(m.kind)}</span> ${m.new ? '<span class="badge vis">new</span>' : ''} ${fitBadge(m)}</b>
       <span class="lab-note">${esc(m.note)}</span><span class="mono dim open-hint">${esc(m.open)}</span></span>
     <span class="lab-stat"><b>${m.steps ?? '—'}</b><i>steps</i></span>
     <span class="lab-stat"><b>${m.secs ? m.secs + 's' : '—'}</b><i>sec</i></span>
     <span class="lab-stat"><b>${m.max ?? '—'}</b><i>max size</i></span>
     <span class="lab-stat"><b class="mono ${lic}" style="font-size:10px">${esc(m.license.split(' (')[0].replace(/ license$/i, ''))}</b><i>license</i></span>
     <span class="lab-acts">${btn}</span></div>`;
+}
+
+// Recent Hugging Face models from the watch list that have no recipe yet (filled in by auto-tune).
+function releases() {
+  const r = S.releases;
+  if (!r?.hf?.length) return r?.checked ? `<div class="mono dim mode-spec">New releases checked ${esc(r.checked)}: nothing new that fits.</div>` : '';
+  return `<div class="releases"><div class="mono dim mode-spec">New on Hugging Face, no recipe yet · checked ${esc(r.checked)} · ≈ size at 4-bit</div>
+    ${r.hf.map(x => `<a class="rel mono" href="https://huggingface.co/${esc(x.id)}" target="_blank" rel="noopener"><span>${esc(x.id)}</span>
+      <span class="dim">${esc(x.created)}${x.params_b ? ` · ${x.params_b}B · ≈${x.q4_gb} GB` : ''}</span></a>`).join('')}</div>`;
+}
+
+// Opens a prefilled GitHub issue with this GPU's auto-tune results. Nothing is sent until the user submits it.
+function share() {
+  const g = S.gpu, body = { rigup: 1, gpu: g?.name, vram_mb: g?.mem_total, driver: g?.driver, results: S.tuned };
+  const url = `https://github.com/${S.repo}/issues/new?title=${encodeURIComponent('Auto-tune results: ' + (g?.name || 'GPU'))}`
+    + `&body=${encodeURIComponent('```json\n' + JSON.stringify(body, null, 1) + '\n```')}`;
+  window.open(url, '_blank', 'noopener');
 }
 
 const head = cols => `<div class="lab-row head mono"><span>Model</span>${cols.map(c => `<span>${c}</span>`).join('')}</div>`;
@@ -84,7 +109,9 @@ function render() {
   $('#lab').innerHTML = `<div class="mode-meta mono"><span>01</span><span>${active ? '● Active' : ''}</span></div>
     <h3>Lab · LLM</h3><p>One model at a time serves an OpenAI-compatible API on :${S.ports.llm}, used by Open WebUI and coding agents. Missing files download on the first switch.</p>${warn}
     <div class="lab-rows">${llms.length ? head(['context', 'tok/s', 'smarts', 'GB VRAM', '']) + llms.map(llmRow).join('') : `<span class="muted">No LLM recipes for ${tier} GB yet.</span>`}</div>
-    <div class="mono dim mode-spec">tok/s and VRAM measured on an RTX 3090 (24 GB). ≈ = estimate. Smarts: rough 1–5. Hover a row for quant and license.</div>`;
+    <div class="mono dim mode-spec">tok/s and VRAM measured on an RTX 3090 (24 GB); "tuned" rows show numbers from your own card. ≈ = estimate. Smarts: rough 1–5. Hover a row for quant and license.</div>
+    <div class="comfy-go">${act('tune', 'Auto-tune', 'Tap again · tests every installed model, a few min each')}
+      ${Object.keys(S.tuned).length ? `<button class="lab-go" data-share>Share results</button>` : ''}</div>${releases()}`;
 
   const comfyOn = mode === 'comfy', ck = 'switch:comfy';
   $('#comfy').innerHTML = `<div class="mode-meta mono"><span>02</span><span>${comfyOn ? (S.healthy ? '● Active' : 'Loading…') : ''}</span></div>
@@ -121,6 +148,7 @@ async function load() {
 document.addEventListener('click', async ev => {
   const t = ev.target.closest('[data-tier]');
   if (t) { tier = +t.dataset.tier; return render(); }
+  if (ev.target.closest('[data-share]')) return share();
   const c = ev.target.closest('[data-copy]');
   if (c) { try { await navigator.clipboard.writeText(c.dataset.copy); } catch {} c.textContent = 'Copied'; return; }
   const a = ev.target.closest('[data-act]');
@@ -130,6 +158,7 @@ document.addEventListener('click', async ev => {
   armed = null;
   const [verb, id] = k.split(':');
   if (verb === 'stop') return post('api/stop');
+  if (verb === 'tune') return post('api/autotune');
   post({ switch: 'api/switch', get: 'api/install', rm: 'api/uninstall' }[verb], { to: id, id });
 });
 
