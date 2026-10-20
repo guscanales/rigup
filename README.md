@@ -139,6 +139,116 @@ FLUX 3 Klein and LTX-2.5 require accepting a license on Hugging Face before down
 
 If you skip this, the download stops with a message telling you which page to accept.
 
+## Use it from a coding agent
+
+The LLM API on :8000 works with coding agents and other harnesses. It speaks the OpenAI API (`/v1/chat/completions`), and both engines also speak the Anthropic Messages API (`/v1/messages`), so Claude Code connects directly with no proxy.
+
+![OpenCode's model picker listing the RigUp models next to its free cloud models](docs/opencode-models.png)
+
+*OpenCode with the RigUp models added next to its cloud models.*
+
+Three things to know first:
+
+- **The model name is the recipe id:** `qwen3-coder-30b`, `qwen3.6-reap`, `qwen3.8-27b`, and so on. The dashboard's Open panel shows the one that's running.
+- **Only the running model answers.** If an agent asks for a model that isn't loaded, the request fails. Switch to it in the dashboard first.
+- **No API key is checked.** Harnesses that insist on one accept any placeholder. Keep port 8000 off the internet (see [Security](#security)).
+
+**Which model for agents:** `qwen3-coder-30b` is the fastest with solid tool calling. `qwen3.6-reap` is the best all-rounder, with 256K context and image input, which helps with big repos and screenshots. `qwen3.8-27b` is the smartest, but its 38K context is too small for agents with large system prompts like Claude Code; use `qwen3.8-27b-gguf` (256K) for that.
+
+In the examples below, replace `<server-ip>` with your server's address.
+
+### Claude Code
+
+Set these environment variables, either in your shell for one session or in the `env` block of `~/.claude/settings.json` to make it permanent:
+
+```bash
+export ANTHROPIC_BASE_URL=http://<server-ip>:8000
+export ANTHROPIC_AUTH_TOKEN=local
+export ANTHROPIC_MODEL=qwen3.6-reap
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=qwen3.6-reap   # background tasks use the same local model
+claude
+```
+
+Unset them (or remove the `env` block) to go back to Claude. Claude Code is tuned for Claude models, so expect a local model to need more guidance and to make more tool call mistakes.
+
+### OpenCode
+
+Add a provider to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "rigup": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "RigUp",
+      "options": { "baseURL": "http://<server-ip>:8000/v1", "apiKey": "local" },
+      "models": {
+        "qwen3-coder-30b": { "name": "Qwen3 Coder 30B", "limit": { "context": 81920, "output": 8192 } },
+        "qwen3.6-reap": {
+          "name": "Qwen3.6 35B-A3B REAP",
+          "limit": { "context": 262144, "output": 16384 },
+          "modalities": { "input": ["text", "image"], "output": ["text"] },
+          "attachment": true
+        },
+        "qwen3.8-27b": { "name": "Qwen3.8 27B", "limit": { "context": 38912, "output": 8192 } }
+      }
+    }
+  },
+  "model": "rigup/qwen3.6-reap"
+}
+```
+
+Then pick the model with `/models`. Setting `limit.context` matters: OpenCode uses it to decide when to compact the conversation.
+
+### Hermes Agent
+
+Run `hermes model`, choose **Custom endpoint (self-hosted / VLLM / etc.)**, enter `http://<server-ip>:8000/v1`, skip the API key, and enter the model name. Or edit `~/.hermes/config.yaml`:
+
+```yaml
+model:
+  default: qwen3.6-reap
+  provider: custom
+  base_url: http://<server-ip>:8000/v1
+  context_length: 262144
+```
+
+Set `context_length` yourself: Hermes otherwise guesses from the server and may pick a smaller window.
+
+### OpenClaw
+
+Add a provider to `~/.openclaw/openclaw.json` and make it the default model:
+
+```json
+{
+  "models": {
+    "providers": {
+      "rigup": {
+        "baseUrl": "http://<server-ip>:8000/v1",
+        "apiKey": "local",
+        "api": "openai-completions",
+        "timeoutSeconds": 300,
+        "models": [
+          { "id": "qwen3.6-reap", "name": "Qwen3.6 REAP (RigUp)", "reasoning": true, "input": ["text", "image"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 262144, "maxTokens": 16384 }
+        ]
+      }
+    }
+  },
+  "agents": { "defaults": { "model": { "primary": "rigup/qwen3.6-reap" } } }
+}
+```
+
+### Anything else
+
+Any tool with an "OpenAI compatible" option works the same way: base URL `http://<server-ip>:8000/v1`, any API key, model name = recipe id. Quick test from the command line:
+
+```bash
+curl http://<server-ip>:8000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model": "qwen3.6-reap", "messages": [{"role": "user", "content": "Say hi"}]}'
+```
+
 ## The models
 
 The status badge on each row says how much to trust the numbers:
