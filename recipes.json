@@ -1,0 +1,207 @@
+{
+  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>.",
+  "images": {
+    "vllm": "vllm/vllm-openai:v0.26.0",
+    "llamacpp": "ghcr.io/ggml-org/llama.cpp:server-cuda-b11669",
+    "comfyui": "mmartial/comfyui-nvidia-docker:latest",
+    "openwebui": "ghcr.io/open-webui/open-webui:main"
+  },
+  "llm": [
+    {
+      "id": "qwen3.6-reap", "name": "Qwen3.6 REAP", "engine": "vllm", "quant": "35B-A3B pruned to 26B, W4A16",
+      "note": "Everyday pick: fast, long context, sees images, reliable tool calls.",
+      "license": "Apache 2.0", "vision": true, "ctx": 262144, "tps": 165, "smart": 4, "vram": 21.6, "disk_gb": 16.3, "start": "~2 min",
+      "fit": {"24": "measured"},
+      "files": [{"repo": "atbender/Qwen3.6-VL-REAP-26B-A3B-W4A16"}],
+      "args": ["--dtype", "bfloat16", "--max-model-len", "262144", "--max-num-seqs", "8", "--gpu-memory-utilization", "0.95",
+               "--kv-cache-dtype", "fp8", "--enable-prefix-caching", "--max-num-batched-tokens", "4096",
+               "--reasoning-parser", "qwen3", "--enable-auto-tool-choice", "--tool-call-parser", "qwen3_coder"]
+    },
+    {
+      "id": "qwen3-coder-30b", "name": "Qwen3 Coder 30B", "engine": "vllm", "quant": "30B-A3B, AWQ 4-bit",
+      "note": "Coder-tuned MoE with solid tool calling. 80K context.",
+      "license": "Apache 2.0", "ctx": 81920, "tps": 185, "smart": 3, "vram": 22.6, "disk_gb": 16.8, "start": "~90 s",
+      "fit": {"24": "measured"},
+      "files": [{"repo": "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"}],
+      "args": ["--quantization", "awq", "--max-model-len", "81920", "--gpu-memory-utilization", "0.96", "--kv-cache-dtype", "fp8",
+               "--enable-auto-tool-choice", "--tool-call-parser", "qwen3_coder"]
+    },
+    {
+      "id": "qwen3.8-27b", "name": "Qwen3.8 27B", "engine": "vllm", "quant": "27B dense, INT4 + MTP",
+      "note": "Smartest of the set, but short context and text only.",
+      "license": "Apache 2.0", "ctx": 38912, "tps": 70, "smart": 5, "vram": 23.5, "disk_gb": 19.5, "start": "~2 min",
+      "fit": {"24": "measured"},
+      "files": [{"repo": "RedHatAI/Qwen3.8-27B-INT4"}],
+      "args": ["--dtype", "bfloat16", "--language-model-only", "--max-model-len", "38912", "--max-num-seqs", "1",
+               "--gpu-memory-utilization", "0.97", "--kv-cache-dtype", "fp8", "--enable-prefix-caching", "--max-num-batched-tokens", "2560",
+               "--reasoning-parser", "qwen3", "--enable-auto-tool-choice", "--tool-call-parser", "qwen3_xml",
+               "--default-chat-template-kwargs", "{\"reasoning_effort\":\"low\"}",
+               "--speculative-config", "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
+    },
+    {
+      "id": "qwen3.8-27b-gguf", "name": "Qwen3.8 27B 256K", "engine": "llamacpp", "quant": "27B dense, UD-Q3_K_XL + MTP",
+      "note": "Same 27B with full 256K context and vision. A 250K prompt takes ~7 min cold.",
+      "license": "Apache 2.0", "vision": true, "ctx": 262144, "tps": 91, "smart": 4.5, "vram": 21.9, "disk_gb": 15.4, "start": "~30 s",
+      "fit": {"24": "measured"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q3_K_XL.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q3_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/MTP/mtp-Qwen3.8-27B-Q4_0.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/MTP/mtp-Qwen3.8-27B-Q4_0.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+               "--spec-draft-model", "/models/unsloth/Qwen3.8-27B-GGUF/MTP/mtp-Qwen3.8-27B-Q4_0.gguf",
+               "--spec-type", "draft-mtp", "--spec-draft-n-max", "3",
+               "--mmproj", "/models/unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf",
+               "-c", "262144", "-ngl", "999", "-ngld", "999", "--flash-attn", "on", "--cache-type-k", "q4_0", "--cache-type-v", "q4_0",
+               "--parallel", "1", "-ub", "512", "--cache-ram", "6144", "--jinja", "--reasoning-effort", "low",
+               "--temp", "1.0", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0"]
+    },
+    {
+      "id": "qwen3.6-35b-q3", "name": "Qwen3.6 35B-A3B", "engine": "llamacpp", "quant": "35B-A3B MoE, UD-Q3_K_XL",
+      "note": "For 16 GB cards. --fit keeps what doesn't fit in system RAM; only 3B params are active per token, so it stays usable. Wants 32 GB RAM.",
+      "license": "Apache 2.0", "vision": true, "ctx": 65536, "vram": 15, "disk_gb": 17.7, "start": "~30 s",
+      "fit": {"16": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf",
+               "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
+               "--fit", "on", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja"]
+    },
+    {
+      "id": "qwen3.8-27b-q2", "name": "Qwen3.8 27B Q2", "engine": "llamacpp", "quant": "27B dense, UD-Q2_K_XL",
+      "note": "For 12-16 GB cards: the smart 27B squeezed to 2-bit. Fully on the GPU, so faster than offloading, at some quality cost.",
+      "license": "Apache 2.0", "vision": true, "ctx": 32768, "vram": 11.5, "disk_gb": 10.7, "start": "~30 s",
+      "fit": {"16": "estimate", "12": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q2_K_XL.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q2_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q2_K_XL.gguf",
+               "--mmproj", "/models/unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf",
+               "--fit", "on", "-c", "32768", "--flash-attn", "on", "--cache-type-k", "q4_0", "--cache-type-v", "q4_0", "--parallel", "1", "--jinja",
+               "--reasoning-effort", "low"]
+    },
+    {
+      "id": "qwen3.6-35b-q2", "name": "Qwen3.6 35B-A3B Q2", "engine": "llamacpp", "quant": "35B-A3B MoE, UD-Q2_K_XL",
+      "note": "For 12 GB cards. Experts that don't fit spill to system RAM (--fit). Wants 32 GB RAM.",
+      "license": "Apache 2.0", "vision": true, "ctx": 32768, "vram": 11.5, "disk_gb": 13.2, "start": "~30 s",
+      "fit": {"12": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf",
+               "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
+               "--fit", "on", "-c", "32768", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja"]
+    }
+  ],
+  "comfy": [
+    {
+      "id": "z-image-turbo", "name": "Z-Image Turbo", "kind": "image", "license": "Apache 2.0",
+      "note": "Best for photos. Commercial use OK.", "open": "Template: image_z_image_turbo",
+      "steps": 8, "secs": 8, "vram": 19.7, "max": "2048²", "disk_gb": 20.6,
+      "fit": {"24": "measured", "16": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors", "dir": "vae"}
+      ]
+    },
+    {
+      "id": "flux3-klein", "name": "FLUX 3 Klein", "kind": "image", "license": "FLUX Kommunity (free under $5M revenue)", "gated": "black-forest-labs/flux-3-image-klein-comfy",
+      "note": "BFL 5.6B: text to image, edits, up to 10 references, bounding boxes.", "open": "Workflows sidebar: flux3_klein_int8_t2i / _i2i / _mi2i",
+      "steps": 16, "max": "4K", "disk_gb": 20.7,
+      "fit": {"24": "works", "16": "estimate", "12": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/vae/flux2-vae.safetensors", "dir": "vae"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/workflows/flux3_klein_int8_t2i.json", "to": "comfyui/basedir/user/default/workflows/flux3_klein_int8_t2i.json",
+         "replace": ["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors"]},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/workflows/flux3_klein_int8_i2i.json", "to": "comfyui/basedir/user/default/workflows/flux3_klein_int8_i2i.json",
+         "replace": ["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors"]},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/workflows/flux3_klein_int8_mi2i.json", "to": "comfyui/basedir/user/default/workflows/flux3_klein_int8_mi2i.json",
+         "replace": ["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors"]}
+      ]
+    },
+    {
+      "id": "flux3-klein-base", "name": "FLUX 3 Klein Base", "kind": "image", "license": "FLUX Kommunity (free under $5M revenue)", "gated": "black-forest-labs/flux-3-image-klein-comfy",
+      "note": "Undistilled Klein (50 steps, CFG 3.5). Slower; for LoRA training.", "open": "Workflows sidebar: flux3_klein_base_int8_t2i",
+      "steps": 50, "max": "4K", "disk_gb": 20.7,
+      "fit": {"24": "works", "16": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-base-int8-convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/vae/flux2-vae.safetensors", "dir": "vae"},
+        {"url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/workflows/flux3_klein_base_int8_t2i.json", "to": "comfyui/basedir/user/default/workflows/flux3_klein_base_int8_t2i.json",
+         "replace": ["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors"]}
+      ]
+    },
+    {
+      "id": "krea2-turbo", "name": "Krea 2 Turbo", "kind": "image", "license": "Krea community",
+      "note": "Krea 12.9B, aesthetic photos and art, style LoRAs.", "open": "Template: image_krea2_turbo_t2i_int8 (not the plain one, it wants fp8 files)",
+      "steps": 8, "max": "2048²", "disk_gb": 19.9,
+      "fit": {"24": "works", "16": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_int8_convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors", "dir": "vae"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/loras/krea2_darkbrush.safetensors", "dir": "loras"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/loras/krea2_style_reference.safetensors", "dir": "loras"}
+      ]
+    },
+    {
+      "id": "qwen-image-2.1-turbo", "name": "Qwen-Image 2.1 Turbo", "kind": "image", "license": "Qwen research license (no commercial use)",
+      "note": "Posters, lettering, legible text, edits with up to 10 references.", "open": "Templates: image_qwen_image_2_1_turbo_t2i, ..._turbo_image_edit",
+      "steps": 8, "secs": 13, "vram": 15.1, "max": "2048²", "disk_gb": 36.3,
+      "fit": {"24": "measured", "16": "estimate", "12": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", "dir": "vae"}
+      ]
+    },
+    {
+      "id": "qwen-image-2.1", "name": "Qwen-Image 2.1", "kind": "image", "license": "Qwen research license (no commercial use)",
+      "note": "Full-quality version of Turbo, about 3x slower.", "open": "Template: image_qwen_image_2_1_t2i",
+      "steps": 25, "max": "2048²", "disk_gb": 26.8,
+      "fit": {"24": "works", "16": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", "dir": "vae"}
+      ]
+    },
+    {
+      "id": "ltx-2.5", "name": "LTX-2.5", "kind": "video", "license": "LTX-2 Community (free under $10M revenue)", "gated": "Lightricks/LTX-2.5",
+      "note": "22B video + audio. 1080p via a half-size pass and its own x2 upscaler. Nearly fills a 24 GB card.", "open": "Templates: video_ltx2_5_t2v, video_ltx2_5_i2v",
+      "max": "1080p", "disk_gb": 45.0,
+      "fit": {"24": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/gemma-4/resolve/main/text_encoders/gemma4_e2b_it_int8_convrot.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-bf16.safetensors", "dir": "vae"},
+        {"url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors", "dir": "vae"},
+        {"url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors", "dir": "latent_upscale_models"}
+      ]
+    },
+    {
+      "id": "seedvr2-3b", "name": "SeedVR2 3B", "kind": "upscaler", "license": "Apache 2.0",
+      "note": "Video and image upscaler. Takes any clip (e.g. 720p) to 1080p.", "open": "Template: utility_seedvr2_3b_int8_upscale_video",
+      "disk_gb": 4.0,
+      "fit": {"24": "estimate", "16": "estimate", "12": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/vae/seedvr2_ema_vae_fp16.safetensors", "dir": "vae"}
+      ]
+    }
+  ]
+}

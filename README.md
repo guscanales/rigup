@@ -1,0 +1,184 @@
+# GPU Switchboard
+
+Run local LLMs, image models and video models on one NVIDIA GPU, and switch between them from a web page.
+
+A consumer GPU can hold one big model at a time. GPU Switchboard turns that into a button: pick a model, it downloads whatever is missing, stops whatever currently holds the card, and starts the new one. The recipes (launch flags, quantization, context length) are tuned for 24 GB cards and come with suggested options for 16 GB and 12 GB cards.
+
+![GPU Switchboard dashboard](docs/dashboard.png)
+
+*Example: Qwen3.6 REAP serving on an RTX 3090. The tabs at the top switch between the 24, 16 and 12 GB recipe sets.*
+
+## What you get
+
+| Port | Service | When it's up | What it's for |
+|---|---|---|---|
+| **8090** | Dashboard | Always | This page: switch models, install and remove them, watch VRAM, load, temperature, power and disk. Password protected. Change it with `SB_PORT`. |
+| **3000** | Open WebUI | Always | ChatGPT-style chat in the browser. It talks to whichever Lab model is running. |
+| **8000** | LLM API | Only while a Lab model is running | OpenAI-compatible API (`http://<server>:8000/v1`). Point coding agents, scripts or apps at it. The model name is the recipe id, for example `qwen3.6-reap`. |
+| **8188** | ComfyUI | Only while ComfyUI mode is running | Node-based image and video generation. |
+
+Ports 8000 and 8188 are never up at the same time, because each one needs the whole GPU.
+
+## Requirements
+
+- Ubuntu 22.04 or newer (other distros may work; the installer is written for apt)
+- One NVIDIA GPU with 12 GB VRAM or more
+- 32 GB system RAM recommended (the 12 and 16 GB recipes keep part of the model in RAM)
+- Disk: about **60 GB for the engines** (vLLM image ~28 GB, ComfyUI ~19 GB, llama.cpp ~7 GB, Open WebUI ~7 GB), plus 10 to 45 GB per model you install. Plan for 200 GB or more.
+- SSH access with a user that can `sudo`
+
+## Install
+
+```bash
+git clone <this repo> gpu-switchboard
+cd gpu-switchboard
+./install.sh
+```
+
+The installer:
+
+1. Installs the NVIDIA driver if `nvidia-smi` doesn't work yet. A new driver needs a reboot, so it stops and asks you to reboot and run `./install.sh` again.
+2. Installs Docker and the NVIDIA Container Toolkit, then checks that a container can see the GPU.
+3. Asks for a dashboard password (stored hashed in `data/config.json`).
+4. Starts Open WebUI on port 3000.
+5. Installs the dashboard as a systemd service (`gpu-switchboard`) that starts at boot.
+
+It doesn't download any models. Each model downloads the first time you use it.
+
+Options, set before running:
+
+```bash
+SB_PORT=9000 ./install.sh          # dashboard on another port
+SB_DATA=/mnt/big ./install.sh      # keep models on another disk
+```
+
+## Using it
+
+Open `http://<server-ip>:8090`, log in with any username and your password.
+
+- **Lab card (LLMs):** tap a model, then tap again to confirm. If its files aren't on disk yet, the button says `Get 16 GB + switch` and the download happens first; progress shows in the row and in the Console panel. Once it says Active, the API on :8000 and Open WebUI on :3000 answer with that model.
+- **ComfyUI card (images and video):** install the packs you want with `Install`, then press `Switch to ComfyUI`. Each pack tells you which template or workflow to open in ComfyUI. The first ComfyUI start installs ComfyUI itself and takes several minutes.
+- **Free GPU** stops whatever is running.
+- **Remove** deletes a model's files. Files that another installed model shares (for example the same text encoder) are kept.
+- **Tabs 24 GB / 16 GB / 12 GB** show the recipes for each card size. Your own card's tab is marked "yours". Recipes for a bigger card than yours are shown for reference but can't be started.
+
+### Gated models
+
+FLUX 3 Klein and LTX-2.5 require accepting a license on Hugging Face before download:
+
+1. Sign in at huggingface.co and accept the license on [flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) and [LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5).
+2. Create a read token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+3. Paste it in the dashboard (Open panel, "Hugging Face token") and press Save.
+
+If you skip this, the download stops with a message telling you which page to accept.
+
+## The models
+
+The status badge on each row says how much to trust the numbers:
+
+- **measured**: run and timed on that card size (all measured on an RTX 3090, 24 GB)
+- **runs**: run on that card size, not timed yet
+- **estimate**: sized on paper, not run on that card size yet. Expect to adjust the context length if it runs out of memory.
+
+### Lab (LLMs, served on :8000)
+
+| Model | Card | Engine | Quant | Context | Speed | VRAM | Download | Status | Good for |
+|---|---|---|---|---|---|---|---|---|---|
+| Qwen3.6 REAP | 24 GB | vLLM | 35B-A3B pruned to 26B, W4A16 | 256K | 165 tok/s | 21.6 GB | 16.3 GB | measured | Everyday pick: fast, long context, sees images, reliable tool calls |
+| Qwen3 Coder 30B | 24 GB | vLLM | 30B-A3B, AWQ 4-bit | 80K | 185 tok/s | 22.6 GB | 16.8 GB | measured | Coding agents; coder-tuned with solid tool calling |
+| Qwen3.8 27B | 24 GB | vLLM | 27B dense, INT4 + MTP | 38K | 70 tok/s | 23.5 GB | 19.5 GB | measured | Hardest reasoning; text only |
+| Qwen3.8 27B 256K | 24 GB | llama.cpp | 27B dense, UD-Q3_K_XL + MTP | 256K | 91 tok/s (33 at 250K) | 21.9 GB | 15.4 GB | measured | Same 27B with full context and vision |
+| Qwen3.6 35B-A3B | 16 GB | llama.cpp | MoE, UD-Q3_K_XL | 64K | | ~15 GB + RAM | 17.7 GB | estimate | Best quality for 16 GB; experts that don't fit live in RAM |
+| Qwen3.8 27B Q2 | 16 / 12 GB | llama.cpp | 27B dense, UD-Q2_K_XL | 32K | | ~11.5 GB | 10.7 GB | estimate | Smart dense model fully on the GPU, at some quality cost |
+| Qwen3.6 35B-A3B Q2 | 12 GB | llama.cpp | MoE, UD-Q2_K_XL | 32K | | ~11.5 GB + RAM | 13.2 GB | estimate | Long answers on a 12 GB card; experts spill to RAM |
+
+All Lab models are Apache 2.0. The 16 and 12 GB recipes use llama.cpp's `--fit on`, which sizes the GPU part automatically and keeps the rest in system RAM.
+
+### ComfyUI (images and video, on :8188)
+
+| Pack | Type | Steps | Time (1024²) | Max size | Download | Cards | License | Open in ComfyUI |
+|---|---|---|---|---|---|---|---|---|
+| Z-Image Turbo | image | 8 | 8 s | 2048² | 20.6 GB | 24 measured, 16 estimate | Apache 2.0 | Template `image_z_image_turbo` |
+| FLUX 3 Klein | image, edit | 16 | | 4K | 20.7 GB | 24 runs, 16 and 12 estimate | FLUX Kommunity, free under $5M revenue. **Gated** | Workflows `flux3_klein_int8_t2i`, `_i2i`, `_mi2i` |
+| FLUX 3 Klein Base | image | 50 | | 4K | 20.7 GB | 24 runs, 16 estimate | Same as Klein. **Gated** | Workflow `flux3_klein_base_int8_t2i` |
+| Krea 2 Turbo | image | 8 | | 2048² | 19.9 GB | 24 runs, 16 estimate | Krea community | Template `image_krea2_turbo_t2i_int8` (not the plain one, it wants fp8 files) |
+| Qwen-Image 2.1 Turbo | image, edit, text in images | 8 | 13 s | 2048² | 36.3 GB | 24 measured, 16 and 12 estimate | Qwen research license, **no commercial use** | Templates `image_qwen_image_2_1_turbo_t2i`, `..._turbo_image_edit` |
+| Qwen-Image 2.1 | image | 25 | | 2048² | 26.8 GB | 24 runs, 16 estimate | Qwen research license, **no commercial use** | Template `image_qwen_image_2_1_t2i` |
+| LTX-2.5 | video + audio | | | 1080p | 45 GB | 24 estimate | LTX-2 Community, free under $10M revenue. **Gated** | Templates `video_ltx2_5_t2v`, `video_ltx2_5_i2v` |
+| SeedVR2 3B | upscaler | | | | 4 GB | all estimate | Apache 2.0 | Template `utility_seedvr2_3b_int8_upscale_video` |
+
+Download sizes count each pack on its own; packs that share files (Klein and Klein Base, the two Qwen-Image packs) download those files once.
+
+**Licenses matter.** The weights are downloaded from their publishers under their own licenses; this project doesn't redistribute them. Read each license before using outputs commercially.
+
+### Model sources
+
+Each model's original release on Hugging Face, and the repo the dashboard downloads from (a quantized or ComfyUI-packaged build of the original).
+
+| Model | Original release | Downloaded from |
+|---|---|---|
+| Qwen3.6 REAP | [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | [atbender/Qwen3.6-VL-REAP-26B-A3B-W4A16](https://huggingface.co/atbender/Qwen3.6-VL-REAP-26B-A3B-W4A16) (expert-pruned, 4-bit) |
+| Qwen3 Coder 30B | [Qwen/Qwen3-Coder-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) | [QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ](https://huggingface.co/QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ) |
+| Qwen3.8 27B | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4) |
+| Qwen3.8 27B 256K, Qwen3.8 27B Q2 | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | [unsloth/Qwen3.8-27B-GGUF](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) |
+| Qwen3.6 35B-A3B, Qwen3.6 35B-A3B Q2 | [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) |
+| Z-Image Turbo | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | [Comfy-Org/z_image_turbo](https://huggingface.co/Comfy-Org/z_image_turbo) |
+| FLUX 3 Klein | [black-forest-labs/flux-3-image-klein](https://huggingface.co/black-forest-labs/flux-3-image-klein) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) |
+| FLUX 3 Klein Base | [black-forest-labs/flux-3-image-klein-base](https://huggingface.co/black-forest-labs/flux-3-image-klein-base) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) |
+| Krea 2 Turbo | [krea/Krea-2-Turbo](https://huggingface.co/krea/Krea-2-Turbo) (base: [krea/Krea-2-Raw](https://huggingface.co/krea/Krea-2-Raw)) | [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) |
+| Qwen-Image 2.1 Turbo | [Qwen/Qwen-Image-2.1-Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo), prompt enhancers [Qwen/Qwen-Image-2.1-PE-T2I](https://huggingface.co/Qwen/Qwen-Image-2.1-PE-T2I) and [Qwen/Qwen-Image-2.1-PE-I2I](https://huggingface.co/Qwen/Qwen-Image-2.1-PE-I2I) | [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) |
+| Qwen-Image 2.1 | [Qwen/Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) | [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) |
+| LTX-2.5 | [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) | [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5), plus the Gemma 4 E2B text encoder from [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4) (original: [google/gemma-4-E2B-it](https://huggingface.co/google/gemma-4-E2B-it)) |
+| SeedVR2 3B | [ByteDance-Seed/SeedVR2-3B](https://huggingface.co/ByteDance-Seed/SeedVR2-3B) | [Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2) |
+
+Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://github.com/ggml-org/llama.cpp), [ComfyUI](https://github.com/Comfy-Org/ComfyUI) (run with the [mmartial/comfyui-nvidia-docker](https://github.com/mmartial/ComfyUI-Nvidia-Docker) image), [Open WebUI](https://github.com/open-webui/open-webui).
+
+## Files on disk
+
+```
+gpu-switchboard/
+├── install.sh          one-time setup
+├── server.py           dashboard + API (Python standard library only)
+├── recipes.json        every model: files, launch flags, sizes, measured numbers
+├── web/                the dashboard page
+└── data/               created at install; not in git
+    ├── config.json     password hash, Hugging Face token (chmod 600)
+    ├── models/         LLM weights, by Hugging Face repo
+    ├── comfyui/        ComfyUI install, model packs, workflows, outputs
+    ├── open-webui/     chat history and accounts
+    ├── cache/          vLLM compile cache, so later starts are faster
+    └── installed/      one marker file per finished download
+```
+
+## Adding a model
+
+Add an entry to `recipes.json` and restart the service (`sudo systemctl restart gpu-switchboard`). Look at a similar existing entry and copy its shape:
+
+- vLLM models list the Hugging Face repo (`{"repo": "org/name"}`) and the vLLM flags in `args`.
+- llama.cpp models list each GGUF file (`{"url": ..., "to": "models/org/name/file.gguf"}`) and the llama-server flags.
+- ComfyUI packs list each file and the ComfyUI folder it goes in (`{"url": ..., "dir": "diffusion_models"}`).
+- `fit` says which card sizes it's meant for and how sure you are.
+
+## Security
+
+The dashboard can start, stop and delete things, so it always asks for a password. It uses HTTP basic auth without TLS, which is fine on a home network or over a VPN such as Tailscale. Don't expose port 8090 to the internet.
+
+ComfyUI (:8188) and the LLM API (:8000) have no login of their own, so keep the server on a trusted network or behind a firewall. Open WebUI (:3000) has its own accounts; the first account you create becomes the admin.
+
+## Troubleshooting
+
+- **A model fails to start:** the Console shows the engine's last log lines. Out-of-memory usually means the context is too long for your card; lower `-c` (llama.cpp) or `--max-model-len` (vLLM) in `recipes.json`.
+- **Service logs:** `journalctl -u gpu-switchboard -f`
+- **Something else is using the GPU:** `nvidia-smi` lists the processes. The switchboard only stops its own containers (`sb-llm`, `sb-comfy`).
+- **Download stopped halfway:** press the button again. Downloads resume where they stopped.
+
+## Uninstall
+
+```bash
+sudo systemctl disable --now gpu-switchboard
+sudo rm /etc/systemd/system/gpu-switchboard.service
+docker rm -f sb-llm sb-comfy sb-webui
+rm -rf data/            # deletes every downloaded model and chat history
+```
+
+Docker, the NVIDIA driver and the container toolkit stay installed.

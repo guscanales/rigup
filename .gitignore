@@ -1,0 +1,6 @@
+data/
+__pycache__/
+*.pyc
+.DS_Store
+# local assistant notes: mention private infrastructure, never publish
+CLAUDE.md
