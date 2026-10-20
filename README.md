@@ -27,6 +27,32 @@ Ports 8000 and 8188 are never up at the same time, because each one needs the wh
 - Disk: about **60 GB for the engines** (vLLM image ~28 GB, ComfyUI ~19 GB, llama.cpp ~7 GB, Open WebUI ~7 GB), plus 10 to 45 GB per model you install. Plan for 200 GB or more.
 - SSH access with a user that can `sudo`
 
+## What to expect on a 24 GB card
+
+Measured on an RTX 3090 (24 GB) with the default 24 GB recipes.
+
+### LLM speed
+
+| Model | Tokens per second | A 1,000 token answer |
+|---|---|---|
+| Qwen3 Coder 30B | 185 tok/s | about 5 s |
+| Qwen3.6 REAP | 165 tok/s | about 6 s |
+| Qwen3.8 27B 256K | 91 tok/s (33 tok/s with 250K of context filled) | about 11 s |
+| Qwen3.8 27B | 70 tok/s | about 14 s |
+
+### Image samples
+
+Same four prompts on each model, at 2K. Times are per image with the model already loaded; the first image after a switch adds the model load. The prompts and settings are in [`docs/samples/generate.py`](docs/samples/generate.py) and [`generate_others.py`](docs/samples/generate_others.py), so you can rerun them.
+
+| | FLUX 3 Klein (16 steps) | Krea 2 Turbo (8 steps) | Z-Image Turbo (8 steps) |
+|---|---|---|---|
+| **Landscape** 2048×1152 | ![](docs/samples/flux3-klein-landscape.png) 36 s | ![](docs/samples/krea2-landscape.png) 48 s | ![](docs/samples/z-image-landscape.png) 18 s |
+| **Portrait** 1536×2048 | ![](docs/samples/flux3-klein-portrait.png) 50 s | ![](docs/samples/krea2-portrait.png) 66 s | ![](docs/samples/z-image-portrait.png) 28 s |
+| **Travel** 2048×1360 | ![](docs/samples/flux3-klein-travel.png) 44 s | ![](docs/samples/krea2-travel.png) 59 s | ![](docs/samples/z-image-travel.png) 24 s |
+| **Desk** 2048×1152 | ![](docs/samples/flux3-klein-desk.png) 36 s | ![](docs/samples/krea2-desk.png) 48 s | ![](docs/samples/z-image-desk.png) 21 s |
+
+Click an image for the full resolution file. A second seed of each is in [`docs/samples/alternates/`](docs/samples/alternates/). The sample images are free to reuse.
+
 ## Install
 
 ```bash
