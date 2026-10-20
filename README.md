@@ -88,7 +88,7 @@ Prices move fast right now: RAM prices roughly tripled during 2026 because of AI
 | | Spec | Measured on this build |
 |---|---|---|
 | GPU memory | 24 GB GDDR6X, 384-bit, **936 GB/s** | |
-| GPU to CPU link | PCIe 4.0 x16, about 32 GB/s each way | Runs at x8 in this build; it only affects how fast a model loads into VRAM, not generation speed |
+| GPU to CPU link | PCIe 4.0 x16, about 32 GB/s each way | |
 | GPU power | 350 W reference, 420 W limit on the EVGA FTW3 | |
 | SSD | PCIe 4.0 x4 NVMe, up to **5,000 MB/s read, 4,200 MB/s write** | 2.6 GB/s read, 3.3 GB/s write (single stream, `dd` with direct I/O) |
 
