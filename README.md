@@ -53,6 +53,47 @@ Same four prompts on each model, at 2K. Times are per image with the model alrea
 
 Click an image for the full resolution file. A second seed of each is in [`docs/samples/alternates/`](docs/samples/alternates/). The sample images are free to reuse.
 
+## The reference build
+
+Every number in this README was measured on this PC: a small form factor box that sits on a desk and is used over the network.
+
+| Open | Closed |
+|---|---|
+| ![The build with the side panel off, showing an EVGA RTX 3090](docs/build/rig-open.jpg) | ![The build closed, Fractal Design Terra with walnut front](docs/build/rig-closed.jpg) |
+
+| Part | Model | Approx. price (US, Oct 2026) |
+|---|---|---|
+| GPU | NVIDIA RTX 3090 24 GB (EVGA FTW3), bought used | $1,200 to $1,500 |
+| CPU | AMD Ryzen 5 9600X, 6 cores | $180 |
+| CPU cooler | Any low profile cooler that fits the case (the 9600X ships without one) | $40 to $60 |
+| Motherboard | Gigabyte A620I AX (mini ITX, AM5, Wi-Fi) | $120 to $150 |
+| RAM | 32 GB DDR5-6000 (2 × 16 GB, TeamGroup) | $430 to $500 |
+| SSD | Samsung 990 EVO 1 TB NVMe | $120 to $150 |
+| Power supply | 750 W SFX | $140 to $170 |
+| Case | Fractal Design Terra (mini ITX, 10.4 L) | $200 |
+| **Total** | | **about $2,400 to $2,900** |
+
+Prices move fast right now: RAM prices roughly tripled during 2026 because of AI demand for memory, SSDs went up too, and used 3090s climbed for the same reason. Check current listings before buying. The GPU is most of the cost; everything else is ordinary gaming PC parts.
+
+**Why these parts:**
+
+- **The GPU sets the limits.** VRAM decides which models fit, and memory bandwidth decides how fast they write. The 3090's 24 GB and 936 GB/s match the newer RTX 4090 on capacity and come close on bandwidth, at a fraction of the price used.
+- **The CPU barely matters.** The models run on the GPU. A 6 core chip is plenty.
+- **32 GB of RAM** is the practical minimum. The 12 and 16 GB card recipes keep part of the model in system RAM, and model files pass through RAM when loading.
+- **A fast NVMe SSD** makes model switches quicker. A 20 GB model reads from disk in a few seconds; most of a switch is the engine starting up.
+- **750 W is enough** for a 3090 (up to 350 W stock, 420 W on this EVGA card) plus a 65 W CPU. Use a quality unit: 3090s have short power spikes well above their rating.
+
+**Key specs:**
+
+| | Spec | Measured on this build |
+|---|---|---|
+| GPU memory | 24 GB GDDR6X, 384-bit, **936 GB/s** | |
+| GPU to CPU link | PCIe 4.0 x16, about 32 GB/s each way | Runs at x8 in this build; it only affects how fast a model loads into VRAM, not generation speed |
+| GPU power | 350 W reference, 420 W limit on the EVGA FTW3 | |
+| SSD | PCIe 4.0 x4 NVMe, up to **5,000 MB/s read, 4,200 MB/s write** | 2.6 GB/s read, 3.3 GB/s write (single stream, `dd` with direct I/O) |
+
+The SSD's rated speeds need many reads in parallel; a single stream like loading one model file gets about half. That's still a 20 GB model in under 10 seconds.
+
 ## Install
 
 ```bash
