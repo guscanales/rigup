@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""GPU Switchboard: one NVIDIA GPU, one model at a time, switched from a web dashboard.
+"""RigUp: one NVIDIA GPU, one model at a time, switched from a web dashboard.
 
 Stdlib only. Engines run as Docker containers; models download on demand from Hugging Face.
 
-  python3 server.py                 serve the dashboard (SB_PORT, default 8090)
+  python3 server.py                 serve the dashboard (RIGUP_PORT, default 8090)
   python3 server.py set-password    set the dashboard password (stored hashed in data/config.json)
 
 API (all behind the dashboard password; POSTs need the X-Requested-With header):
@@ -18,8 +18,8 @@ import base64, getpass, hashlib, hmac, json, os, secrets, shutil, subprocess, sy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.abspath(os.environ.get("SB_DATA", os.path.join(ROOT, "data")))
-PORT = int(os.environ.get("SB_PORT", "8090"))
+DATA = os.path.abspath(os.environ.get("RIGUP_DATA", os.path.join(ROOT, "data")))
+PORT = int(os.environ.get("RIGUP_PORT", "8090"))
 CONFIG = os.path.join(DATA, "config.json")
 RECIPES = json.load(open(os.path.join(ROOT, "recipes.json")))
 IMAGES = RECIPES["images"]
@@ -98,7 +98,7 @@ opener = urllib.request.build_opener(NoAuthOnRedirect)
 
 
 def hf_open(url, start=0):
-    req = urllib.request.Request(url, headers={"User-Agent": "gpu-switchboard"})
+    req = urllib.request.Request(url, headers={"User-Agent": "rigup"})
     if config().get("hf_token"):
         req.add_header("Authorization", "Bearer " + config()["hf_token"])
     if start:
@@ -190,8 +190,8 @@ def sh(*cmd, check=True):
 
 def running():
     """{'llm': id} / {'comfy': 'comfy'} for our containers that are up."""
-    out = sh("docker", "ps", "--filter", "label=sb.mode", "--format", '{{.Names}} {{.Label "sb.mode"}}', check=False)
-    return {name.removeprefix("sb-"): mode for name, mode in (l.split() for l in out.splitlines() if l.strip())}
+    out = sh("docker", "ps", "--filter", "label=rigup.mode", "--format", '{{.Names}} {{.Label "rigup.mode"}}', check=False)
+    return {name.removeprefix("rigup-"): mode for name, mode in (l.split() for l in out.splitlines() if l.strip())}
 
 
 def up(url):
@@ -203,8 +203,8 @@ def up(url):
 
 
 def stop_gpu():
-    sh("docker", "stop", "-t", "30", "sb-llm", "sb-comfy", check=False)   # ComfyUI needs >10s to release VRAM cleanly
-    sh("docker", "rm", "-f", "sb-llm", "sb-comfy", check=False)
+    sh("docker", "stop", "-t", "30", "rigup-llm", "rigup-comfy", check=False)   # ComfyUI needs >10s to release VRAM cleanly
+    sh("docker", "rm", "-f", "rigup-llm", "rigup-comfy", check=False)
     time.sleep(3)
 
 
@@ -213,12 +213,12 @@ def run_cmd(mid):
     if mid == "comfy":
         for d in ("comfyui/run", "comfyui/basedir"):
             os.makedirs(os.path.join(DATA, d), exist_ok=True)
-        return ["docker", "run", "-d", "--name", "sb-comfy", "--label", "sb.mode=comfy", "--gpus", "all", "-p", f"{PORTS['comfy']}:8188",
+        return ["docker", "run", "-d", "--name", "rigup-comfy", "--label", "rigup.mode=comfy", "--gpus", "all", "-p", f"{PORTS['comfy']}:8188",
                 "-v", f"{DATA}/comfyui/run:/comfy/mnt", "-v", f"{DATA}/comfyui/basedir:/basedir",
                 "-e", f"WANTED_UID={os.getuid()}", "-e", f"WANTED_GID={os.getgid()}", "-e", "BASE_DIRECTORY=/basedir",
                 "-e", "SECURITY_LEVEL=normal", "-e", "USE_UV=true", IMAGES["comfyui"]]
     m = MODELS[mid]
-    base = ["docker", "run", "-d", "--name", "sb-llm", "--label", f"sb.mode={mid}", "--gpus", "all", "--ipc", "host",
+    base = ["docker", "run", "-d", "--name", "rigup-llm", "--label", f"rigup.mode={mid}", "--gpus", "all", "--ipc", "host",
             "-p", f"{PORTS['llm']}:8000", "-v", f"{DATA}/models:/models:ro"]
     if m["engine"] == "vllm":
         os.makedirs(os.path.join(DATA, "cache/vllm"), exist_ok=True)
@@ -325,7 +325,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
         self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="GPU Switchboard"')
+        self.send_header("WWW-Authenticate", 'Basic realm="RigUp"')
         self.send_header("Content-Length", "0")
         self.end_headers()
         return False
@@ -344,7 +344,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.authed():
             return
-        if self.headers.get("X-Requested-With") != "switchboard":   # blocks cross-site form posts
+        if self.headers.get("X-Requested-With") != "rigup":   # blocks cross-site form posts
             return self.send(403, {"error": "missing X-Requested-With"})
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
@@ -380,7 +380,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def set_password():
-    pw = os.environ.get("SB_PASSWORD") or getpass.getpass("Dashboard password: ")
+    pw = os.environ.get("RIGUP_PASSWORD") or getpass.getpass("Dashboard password: ")
     if len(pw) < 8:
         sys.exit("Use at least 8 characters.")
     salt = secrets.token_hex(16)
@@ -393,5 +393,5 @@ if __name__ == "__main__":
         set_password()
     else:
         os.makedirs(DATA, exist_ok=True)
-        print(f"GPU Switchboard on :{PORT}, data in {DATA}", flush=True)
+        print(f"RigUp on :{PORT}, data in {DATA}", flush=True)
         ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

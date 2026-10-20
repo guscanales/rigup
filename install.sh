@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# GPU Switchboard installer for Ubuntu + one NVIDIA GPU. Safe to re-run.
+# RigUp installer for Ubuntu + one NVIDIA GPU. Safe to re-run.
 #
 #   ./install.sh                       install with defaults
-#   SB_PORT=9000 ./install.sh          dashboard on another port
-#   SB_DATA=/mnt/big ./install.sh      keep models on another disk
+#   RIGUP_PORT=9000 ./install.sh          dashboard on another port
+#   RIGUP_DATA=/mnt/big ./install.sh      keep models on another disk
 #
 # Installs: NVIDIA driver (if missing), Docker, NVIDIA Container Toolkit, Open WebUI,
 # and a systemd service running the dashboard. Models are NOT downloaded here;
@@ -11,8 +11,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
-SB_PORT=${SB_PORT:-8090}
-SB_DATA=${SB_DATA:-$ROOT/data}
+RIGUP_PORT=${RIGUP_PORT:-8090}
+RIGUP_DATA=${RIGUP_DATA:-$ROOT/data}
 WEBUI_IMAGE=$(python3 -c "import json;print(json.load(open('$ROOT/recipes.json'))['images']['openwebui'])")
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 
@@ -55,36 +55,36 @@ sudo systemctl restart docker
 say "Checking that Docker can use the GPU"
 sudo docker run --rm --gpus all ubuntu:24.04 nvidia-smi -L
 
-# 4. Dashboard password (stored hashed in $SB_DATA/config.json)
-mkdir -p "$SB_DATA"
-if ! grep -q password_hash "$SB_DATA/config.json" 2>/dev/null; then
+# 4. Dashboard password (stored hashed in $RIGUP_DATA/config.json)
+mkdir -p "$RIGUP_DATA"
+if ! grep -q password_hash "$RIGUP_DATA/config.json" 2>/dev/null; then
   say "Choose a password for the dashboard"
-  SB_DATA="$SB_DATA" python3 "$ROOT/server.py" set-password
+  RIGUP_DATA="$RIGUP_DATA" python3 "$ROOT/server.py" set-password
 fi
 
 # 5. Open WebUI: always on, no GPU, talks to whichever LLM is loaded on :8000
-if ! sudo docker ps -a --format '{{.Names}}' | grep -qx sb-webui; then
+if ! sudo docker ps -a --format '{{.Names}}' | grep -qx rigup-webui; then
   say "Starting Open WebUI (first run downloads ~7 GB)"
-  sudo docker run -d --name sb-webui --restart unless-stopped -p 3000:8080 \
+  sudo docker run -d --name rigup-webui --restart unless-stopped -p 3000:8080 \
     --add-host host.docker.internal:host-gateway \
-    -v "$SB_DATA/open-webui:/app/backend/data" \
+    -v "$RIGUP_DATA/open-webui:/app/backend/data" \
     -e OPENAI_API_BASE_URL=http://host.docker.internal:8000/v1 -e OPENAI_API_KEY=none -e ENABLE_OLLAMA_API=false \
     "$WEBUI_IMAGE" >/dev/null
 fi
 
 # 6. The dashboard as a service that starts at boot
-say "Installing the gpu-switchboard service on port $SB_PORT"
-sudo tee /etc/systemd/system/gpu-switchboard.service >/dev/null <<EOF
+say "Installing the rigup service on port $RIGUP_PORT"
+sudo tee /etc/systemd/system/rigup.service >/dev/null <<EOF
 [Unit]
-Description=GPU Switchboard dashboard
+Description=RigUp dashboard
 After=network-online.target docker.service
 Wants=docker.service
 
 [Service]
 User=$USER
 SupplementaryGroups=docker
-Environment=SB_PORT=$SB_PORT
-Environment=SB_DATA=$SB_DATA
+Environment=RIGUP_PORT=$RIGUP_PORT
+Environment=RIGUP_DATA=$RIGUP_DATA
 ExecStart=/usr/bin/python3 $ROOT/server.py
 Restart=on-failure
 
@@ -92,15 +92,15 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 sudo systemctl daemon-reload
-sudo systemctl enable --now gpu-switchboard
-sudo systemctl restart gpu-switchboard
+sudo systemctl enable --now rigup
+sudo systemctl restart rigup
 
 IP=$(hostname -I | awk '{print $1}')
 cat <<EOF
 
 Done. Open the dashboard from any machine on your network:
 
-  Dashboard   http://$IP:$SB_PORT     (any username, the password you just set)
+  Dashboard   http://$IP:$RIGUP_PORT     (any username, the password you just set)
   Open WebUI  http://$IP:3000         (create the first account; it becomes admin)
   LLM API     http://$IP:8000/v1      (up while a Lab model is running)
   ComfyUI     http://$IP:8188         (up while ComfyUI mode is running)

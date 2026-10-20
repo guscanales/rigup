@@ -1,4 +1,4 @@
-/* GPU Switchboard. Dark, mono accents, one cyan. */
+/* RigUp. Dark, mono accents, one cyan. */
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
@@ -228,7 +228,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .app-name { font-weight: 500; font-size: 15px; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
 .app-host { font-family: var(--ff-mono); font-size: 10.5px; color: var(--ink-mute); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ----- switchboard ----- */
+/* ----- dashboard ----- */
 .tiers { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
 .tiers a { padding: 8px 18px; border-radius: 999px; font-size: 14px; color: var(--ink-dim); cursor: pointer; transition: color .2s ease, background .2s ease; }
 .tiers a:hover { color: var(--ink); }

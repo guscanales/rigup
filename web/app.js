@@ -1,4 +1,4 @@
-// GPU Switchboard dashboard. Polls /api/state; every action is a POST the server runs in the background.
+// RigUp dashboard. Polls /api/state; every action is a POST the server runs in the background.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const FIT = { measured: 'measured', works: 'runs', estimate: 'estimate' };
@@ -6,7 +6,7 @@ let S = null, tier = null, armed = null, armTimer, note = null;
 
 const host = location.hostname;
 const post = async (path, body) => {
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'switchboard' }, body: JSON.stringify(body || {}) });
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'rigup' }, body: JSON.stringify(body || {}) });
   note = r.ok ? null : (await r.json().catch(() => ({}))).error || 'HTTP ' + r.status;
   load();
 };

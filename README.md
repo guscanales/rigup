@@ -1,10 +1,10 @@
-# GPU Switchboard
+# RigUp
 
-Run local LLMs, image models and video models on one NVIDIA GPU, and switch between them from a web page.
+Got a gaming GPU? Run one install script and start using local AI models: chat, coding, images and video, all switched from a web page.
 
-A consumer GPU can hold one big model at a time. GPU Switchboard turns that into a button: pick a model, it downloads whatever is missing, stops whatever currently holds the card, and starts the new one. The recipes (launch flags, quantization, context length) are tuned for 24 GB cards and come with suggested options for 16 GB and 12 GB cards.
+No setup, no config files to learn. RigUp installs the driver, Docker and the engines, then gives you a dashboard. Pick a model and it downloads whatever is missing, stops whatever currently holds the card, and starts the new one. A gaming card holds one big model at a time, so that's how RigUp runs them. The recipes (launch flags, quantization, context length) are tuned for 24 GB cards and come with suggested options for 16 GB and 12 GB cards.
 
-![GPU Switchboard dashboard](docs/dashboard.png)
+![RigUp dashboard](docs/dashboard.png)
 
 *Example: Qwen3.6 REAP serving on an RTX 3090. The tabs at the top switch between the 24, 16 and 12 GB recipe sets.*
 
@@ -12,7 +12,7 @@ A consumer GPU can hold one big model at a time. GPU Switchboard turns that into
 
 | Port | Service | When it's up | What it's for |
 |---|---|---|---|
-| **8090** | Dashboard | Always | This page: switch models, install and remove them, watch VRAM, load, temperature, power and disk. Password protected. Change it with `SB_PORT`. |
+| **8090** | Dashboard | Always | This page: switch models, install and remove them, watch VRAM, load, temperature, power and disk. Password protected. Change it with `RIGUP_PORT`. |
 | **3000** | Open WebUI | Always | ChatGPT-style chat in the browser. It talks to whichever Lab model is running. |
 | **8000** | LLM API | Only while a Lab model is running | OpenAI-compatible API (`http://<server>:8000/v1`). Point coding agents, scripts or apps at it. The model name is the recipe id, for example `qwen3.6-reap`. |
 | **8188** | ComfyUI | Only while ComfyUI mode is running | Node-based image and video generation. |
@@ -56,8 +56,8 @@ Click an image for the full resolution file. A second seed of each is in [`docs/
 ## Install
 
 ```bash
-git clone <this repo> gpu-switchboard
-cd gpu-switchboard
+git clone https://github.com/guscanales/rigup.git
+cd rigup
 ./install.sh
 ```
 
@@ -67,15 +67,15 @@ The installer:
 2. Installs Docker and the NVIDIA Container Toolkit, then checks that a container can see the GPU.
 3. Asks for a dashboard password (stored hashed in `data/config.json`).
 4. Starts Open WebUI on port 3000.
-5. Installs the dashboard as a systemd service (`gpu-switchboard`) that starts at boot.
+5. Installs the dashboard as a systemd service (`rigup`) that starts at boot.
 
 It doesn't download any models. Each model downloads the first time you use it.
 
 Options, set before running:
 
 ```bash
-SB_PORT=9000 ./install.sh          # dashboard on another port
-SB_DATA=/mnt/big ./install.sh      # keep models on another disk
+RIGUP_PORT=9000 ./install.sh          # dashboard on another port
+RIGUP_DATA=/mnt/big ./install.sh      # keep models on another disk
 ```
 
 ## Using it
@@ -162,7 +162,7 @@ Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://githu
 ## Files on disk
 
 ```
-gpu-switchboard/
+rigup/
 ├── install.sh          one-time setup
 ├── server.py           dashboard + API (Python standard library only)
 ├── recipes.json        every model: files, launch flags, sizes, measured numbers
@@ -178,7 +178,7 @@ gpu-switchboard/
 
 ## Adding a model
 
-Add an entry to `recipes.json` and restart the service (`sudo systemctl restart gpu-switchboard`). Look at a similar existing entry and copy its shape:
+Add an entry to `recipes.json` and restart the service (`sudo systemctl restart rigup`). Look at a similar existing entry and copy its shape:
 
 - vLLM models list the Hugging Face repo (`{"repo": "org/name"}`) and the vLLM flags in `args`.
 - llama.cpp models list each GGUF file (`{"url": ..., "to": "models/org/name/file.gguf"}`) and the llama-server flags.
@@ -194,16 +194,16 @@ ComfyUI (:8188) and the LLM API (:8000) have no login of their own, so keep the 
 ## Troubleshooting
 
 - **A model fails to start:** the Console shows the engine's last log lines. Out-of-memory usually means the context is too long for your card; lower `-c` (llama.cpp) or `--max-model-len` (vLLM) in `recipes.json`.
-- **Service logs:** `journalctl -u gpu-switchboard -f`
-- **Something else is using the GPU:** `nvidia-smi` lists the processes. The switchboard only stops its own containers (`sb-llm`, `sb-comfy`).
+- **Service logs:** `journalctl -u rigup -f`
+- **Something else is using the GPU:** `nvidia-smi` lists the processes. RigUp only stops its own containers (`rigup-llm`, `rigup-comfy`).
 - **Download stopped halfway:** press the button again. Downloads resume where they stopped.
 
 ## Uninstall
 
 ```bash
-sudo systemctl disable --now gpu-switchboard
-sudo rm /etc/systemd/system/gpu-switchboard.service
-docker rm -f sb-llm sb-comfy sb-webui
+sudo systemctl disable --now rigup
+sudo rm /etc/systemd/system/rigup.service
+docker rm -f rigup-llm rigup-comfy rigup-webui
 rm -rf data/            # deletes every downloaded model and chat history
 ```
 
