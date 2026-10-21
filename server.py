@@ -26,8 +26,14 @@ CATALOG = os.path.join(DATA, "catalog.json")     # newest recipes.json from GitH
 RELEASES = os.path.join(DATA, "releases.json")   # recent Hugging Face models from the watch list
 TUNED = os.path.join(DATA, "tuned.json")         # auto-tune results for this GPU
 REPO = "guscanales/rigup"
-PORTS = {"llm": 8000, "comfy": 8188, "webui": 3000}
-HEALTH = {"llm": f"http://127.0.0.1:{PORTS['llm']}/v1/models", "comfy": f"http://127.0.0.1:{PORTS['comfy']}/"}
+MAC = sys.platform == "darwin"   # Apple Silicon: llama.cpp (Metal) as a native process instead of Docker, LLMs only for now
+ENGINE = os.path.join(DATA, "engine.json")    # macOS: pid and model of the running engine
+ENGINE_LOG = os.path.join(DATA, "engine.log")
+LLAMA_SERVER = shutil.which("llama-server") or "/opt/homebrew/bin/llama-server"
+TIERS = [16, 24, 32, 48, 64, 128] if MAC else [24, 16, 12]   # GB of unified memory on a Mac, of VRAM on NVIDIA
+GROUPS = {"mac": "llm"} if MAC else {"llm": "llm", "comfy": "comfy"}   # recipes.json list -> dashboard group
+PORTS = {"llm": 8000} if MAC else {"llm": 8000, "comfy": 8188, "webui": 3000}
+HEALTH = {"llm": "http://127.0.0.1:8000/v1/models", "comfy": "http://127.0.0.1:8188/"}
 
 
 
@@ -36,6 +42,13 @@ def read_json(path, default):
         return json.load(open(path))
     except (OSError, ValueError):
         return default
+
+
+def read_text(path):
+    try:
+        return open(path, errors="replace").read()
+    except OSError:
+        return ""
 
 
 def write_json(path, obj):
@@ -51,13 +64,13 @@ def load_catalog():
     global RECIPES, IMAGES, MODELS
     RECIPES = json.load(open(os.path.join(ROOT, "recipes.json")))
     IMAGES = RECIPES["images"]
-    MODELS = {m["id"]: {**m, "group": g} for g in ("llm", "comfy") for m in RECIPES[g]}
+    MODELS = {m["id"]: {**m, "group": g} for key, g in GROUPS.items() for m in RECIPES.get(key, [])}
     up = read_json(CATALOG, {})
-    for g in ("llm", "comfy"):
-        for m in up.get(g, []):
+    for key, g in GROUPS.items():
+        for m in up.get(key, []):
             if m["id"] not in MODELS:
                 image = up.get("images", {}).get(m.get("engine") or "comfyui")
-                MODELS[m["id"]] = {**m, "group": g, "new": True, **({"image": image} if image else {})}
+                MODELS[m["id"]] = {**m, "group": g, "new": True, **({"image": image} if image and not MAC else {})}
 
 
 load_catalog()
@@ -225,6 +238,10 @@ def sh(*cmd, check=True):
 
 def running():
     """{'llm': id} / {'comfy': 'comfy'} for our containers that are up."""
+    if MAC:
+        e = read_json(ENGINE, {})
+        cmd = sh("ps", "-o", "command=", "-p", str(e.get("pid", 0)), check=False)
+        return {"llm": e["id"]} if "llama-server" in cmd else {}
     out = sh("docker", "ps", "--filter", "label=rigup.mode", "--format", '{{.Names}} {{.Label "rigup.mode"}}', check=False)
     return {name.removeprefix("rigup-"): mode for name, mode in (l.split() for l in out.splitlines() if l.strip())}
 
@@ -238,6 +255,19 @@ def up(url):
 
 
 def stop_gpu():
+    if MAC:
+        if running():
+            pid = read_json(ENGINE, {})["pid"]
+            os.killpg(pid, 15)
+            for _ in range(40):
+                if not running():
+                    break
+                time.sleep(0.5)
+            else:
+                os.killpg(pid, 9)
+        if os.path.exists(ENGINE):
+            os.remove(ENGINE)
+        return
     sh("docker", "stop", "-t", "30", "rigup-llm", "rigup-comfy", check=False)   # ComfyUI needs >10s to release VRAM cleanly
     sh("docker", "rm", "-f", "rigup-llm", "rigup-comfy", check=False)
     time.sleep(3)
@@ -263,6 +293,18 @@ def run_cmd(mid, args=None):
     return base + [m.get("image") or IMAGES["llamacpp"], *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
 
 
+def start_native(mid, args):
+    """macOS: run the engine as a plain process in its own session, so it survives a dashboard restart."""
+    m = MODELS[mid]
+    models = os.path.join(DATA, "models")
+    args = [models + a[len("/models"):] if a.startswith("/models/") else a for a in args]
+    cmd = [LLAMA_SERVER, *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
+    with open(ENGINE_LOG, "w") as out:
+        p = subprocess.Popen(cmd, cwd=DATA, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    write_json(ENGINE, {"pid": p.pid, "id": mid})
+    return p
+
+
 def switch(mid, args=None):
     group = "comfy" if mid == "comfy" else "llm"
     name = "ComfyUI" if mid == "comfy" else MODELS[mid]["name"]
@@ -270,24 +312,33 @@ def switch(mid, args=None):
         download(MODELS[mid])
     log("stopping whatever holds the GPU")
     stop_gpu()
-    cmd = run_cmd(mid, args)
-    images = set(IMAGES.values()) | {m.get("image") for m in MODELS.values()}
-    image = next(a for a in cmd if a in images)
-    if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode:
-        log(f"pulling {image} (one time, several GB; vLLM is ~28 GB)")
-        sh("docker", "pull", "-q", image)
-    log(f"starting {name}")
-    cid = sh(*cmd)
+    if MAC:
+        log(f"starting {name}")
+        p = start_native(mid, args or args_for(MODELS[mid]))
+        alive, logs, where = lambda: p.poll() is None, engine_logs, ENGINE_LOG
+    else:
+        cmd = run_cmd(mid, args)
+        images = set(IMAGES.values()) | {m.get("image") for m in MODELS.values()}
+        image = next(a for a in cmd if a in images)
+        if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode:
+            log(f"pulling {image} (one time, several GB; vLLM is ~28 GB)")
+            sh("docker", "pull", "-q", image)
+        log(f"starting {name}")
+        cid = sh(*cmd)
+        alive = lambda: sh("docker", "inspect", "-f", "{{.State.Running}}", cid, check=False) == "true"
+
+        def logs():
+            r = subprocess.run(["docker", "logs", "--tail", "40", cid], capture_output=True, text=True)
+            return r.stdout + r.stderr
+        where = f"docker logs {cid[:12]}"
     # ComfyUI installs itself on the first start (several minutes); big vLLM models compile on theirs.
     limit = 1800 if group == "comfy" else 1200
     deadline = time.time() + limit
     while not up(HEALTH[group]):
-        if sh("docker", "inspect", "-f", "{{.State.Running}}", cid, check=False) != "true":
-            r = subprocess.run(["docker", "logs", "--tail", "25", cid], capture_output=True, text=True)
-            tail = r.stdout + r.stderr
-            raise RuntimeError(f"{name} exited while loading. Last log lines:\n{tail[-1500:]}")
+        if not alive():
+            raise RuntimeError(f"{name} exited while loading. Last log lines:\n{logs()[-1500:]}")
         if time.time() > deadline:
-            raise RuntimeError(f"{name} did not answer within {limit // 60} min; see docker logs {cid[:12]}")
+            raise RuntimeError(f"{name} did not answer within {limit // 60} min; see {where}")
         time.sleep(5)
     log(f"{name} is ready on port {PORTS[group]}")
 
@@ -378,6 +429,8 @@ def set_flag(args, name, value):
 
 
 def tier_of(g):
+    if MAC:
+        return max([t for t in TIERS if t <= g["ram_gb"]] or TIERS[:1])
     return None if not g else 24 if g["mem_total"] >= 22000 else 16 if g["mem_total"] >= 15000 else 12
 
 
@@ -394,6 +447,8 @@ def model_max_ctx(m):
 
 
 def engine_logs():
+    if MAC:
+        return read_text(ENGINE_LOG)
     r = subprocess.run(["docker", "logs", "rigup-llm"], capture_output=True, text=True)
     return r.stdout + r.stderr
 
@@ -452,8 +507,8 @@ def tune(m):
             log(f"  {bigger} didn't start, keeping {ctx}")
             switch(m["id"], args)
     tps, g = measure(m["id"]), gpu()
-    result = {"gpu": g["name"], "args": args, "ctx": int(get_flag(args, cf)), "tps": tps, "vram": round(g["mem_used"] / 1024, 1),
-              "image": m.get("image") or IMAGES[m["engine"]], "date": time.strftime("%Y-%m-%d")}
+    result = {"gpu": g["name"], "args": args, "ctx": int(get_flag(args, cf)), "tps": tps,
+              "vram": round(g["mem_used"] / 1024, 1), "image": mac_info()["engine"] if MAC else m.get("image") or IMAGES[m["engine"]], "date": time.strftime("%Y-%m-%d")}
     write_json(TUNED, {**read_json(TUNED, {}), m["id"]: result})
     log(f"  {m['name']}: {result['ctx']} context, {tps} tok/s, {result['vram']} GB VRAM")
 
@@ -462,7 +517,7 @@ def autotune():
     check_releases()
     g = gpu()
     if not g:
-        raise RuntimeError("no NVIDIA GPU found")
+        raise RuntimeError("no GPU found")
     todo = [m for m in MODELS.values() if m["group"] == "llm" and installed(m) and str(tier_of(g)) in m["fit"]]
     if not todo:
         log("no installed Lab models to tune; get one first")
@@ -483,7 +538,29 @@ def autotune():
 
 
 # ---------- status ----------
+_mac = {}
+
+
+def mac_info():
+    """Chip, RAM and how much of it macOS lets the GPU use (asked once; llama.cpp reports the Metal limit)."""
+    if not _mac:
+        ram = int(sh("sysctl", "-n", "hw.memsize"))
+        limit = re.search(r"MTL\d+: .*?\((\d+) MiB", sh(LLAMA_SERVER, "--list-devices", check=False))
+        ver = subprocess.run([LLAMA_SERVER, "--version"], capture_output=True, text=True)   # prints to stderr
+        build = re.search(r"build (\d+)", ver.stdout + ver.stderr)
+        _mac.update(name=sh("sysctl", "-n", "machdep.cpu.brand_string"), ram_gb=round(ram / 2**30),
+                    mem_total=int(limit[1]) if limit else int(ram * 0.75) // 2**20,   # macOS usually lets the GPU use ~75%
+                    driver="macOS " + sh("sw_vers", "-productVersion"), engine=f"llama.cpp b{build[1]}" if build else "llama.cpp")
+    return _mac
+
+
 def gpu():
+    if MAC:
+        # Memory in use = the engine's footprint; model weights and cache live in unified memory.
+        pid = read_json(ENGINE, {}).get("pid") if running() else None
+        fp = sh("footprint", "-f", "bytes", "-p", str(pid), check=False) if pid else ""
+        used = re.search(r"Footprint:\s*(\d+)", fp)
+        return {**mac_info(), "mem_used": int(used[1]) // 2**20 if used else 0, "util": None, "temp": None, "power": None}
     try:
         out = sh("nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw,driver_version",
                  "--format=csv,noheader,nounits")
@@ -504,7 +581,7 @@ def snapshot():
     models = [{k: v for k, v in m.items() if k not in ("files", "args")} | {"installed": installed(m)} for m in MODELS.values()]
     return {"gpu": g, "tier": tier, "mode": mode, "healthy": healthy, "disk": {"free_gb": round(du.free / 1e9), "total_gb": round(du.total / 1e9)},
             "models": models, "ports": PORTS, "hf_token": bool(config().get("hf_token")), "now": time.time(),
-            "tuned": tuned, "releases": read_json(RELEASES, {}), "repo": REPO,
+            "tuned": tuned, "releases": read_json(RELEASES, {}), "repo": REPO, "platform": "mac" if MAC else "linux", "tiers": TIERS,
             **{k: state[k] for k in ("busy", "target", "error", "log", "dl")}}
 
 
@@ -569,7 +646,7 @@ class Handler(BaseHTTPRequestHandler):
                 job("stopping", None, stop_gpu)
             elif path == "/api/autotune":
                 job("tuning", None, autotune)
-            elif mid != "comfy" and mid not in MODELS:
+            elif mid != "comfy" and mid not in MODELS or MAC and mid == "comfy":
                 return self.send(400, {"error": f"unknown model {mid!r}"})
             elif path == "/api/switch":
                 if mid != "comfy" and MODELS[mid]["group"] != "llm":

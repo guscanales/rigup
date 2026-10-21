@@ -1,5 +1,5 @@
 {
-  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>. watch: Hugging Face authors that auto-tune checks for new models without a recipe yet.",
+  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>. mac: the same idea for Apple Silicon Macs, all on llama.cpp; fit keys are GB of unified memory. watch: Hugging Face authors that auto-tune checks for new models without a recipe yet.",
   "watch": ["Qwen", "unsloth", "google", "mistralai", "Comfy-Org", "black-forest-labs", "Lightricks"],
   "images": {
     "vllm": "vllm/vllm-openai:v0.26.0",
@@ -96,6 +96,107 @@
       "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf",
                "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
                "--fit", "on", "-c", "32768", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja"]
+    }
+  ],
+  "mac": [
+    {
+      "id": "qwen3.5-9b", "name": "Qwen3.5 9B", "engine": "llamacpp", "quant": "9B dense, UD-Q4_K_XL",
+      "note": "For 16 GB Macs: small but capable, sees images, and leaves room for your other apps.",
+      "license": "Apache 2.0", "vision": true, "ctx": 65536, "tps": 33, "vram": 8.8, "disk_gb": 6.9, "smart": 2.5, "start": "~20 s",
+      "fit": {"16": "estimate", "24": "measured"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-Q4_K_XL.gguf", "to": "models/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf", "--mmproj", "/models/unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3-coder-30b-q3", "name": "Qwen3 Coder 30B", "engine": "llamacpp", "quant": "30B-A3B MoE, UD-Q3_K_XL",
+      "note": "Best coder for a 24 GB Mac. Solid tool calling; only 3B params active per token, so it's fast.",
+      "license": "Apache 2.0", "vision": false, "ctx": 32768, "tps": 66, "vram": 16.4, "disk_gb": 13.8, "smart": 3, "start": "~20 s",
+      "fit": {"24": "measured"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-UD-Q3_K_XL.gguf", "to": "models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-UD-Q3_K_XL.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-UD-Q3_K_XL.gguf", "-c", "32768", "--flash-attn", "on", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3.6-35b-q2", "name": "Qwen3.6 35B-A3B Q2", "engine": "llamacpp", "quant": "35B-A3B MoE, UD-Q2_K_XL",
+      "note": "Smartest all-rounder that fits a 24 GB Mac, with vision. 2-bit costs some quality.",
+      "license": "Apache 2.0", "vision": true, "ctx": 32768, "tps": 58, "vram": 13.6, "disk_gb": 13.2, "smart": 3.5, "start": "~20 s",
+      "fit": {"24": "measured"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf", "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf", "-c", "32768", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3-coder-30b", "name": "Qwen3 Coder 30B", "engine": "llamacpp", "quant": "30B-A3B MoE, UD-Q4_K_XL",
+      "note": "Coder-tuned MoE at 4-bit, for 32 GB Macs and up. Fast, with solid tool calling.",
+      "license": "Apache 2.0", "vision": false, "ctx": 65536, "disk_gb": 17.7, "smart": 3, "start": "~20 s",
+      "fit": {"32": "estimate", "48": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf", "to": "models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3.6-35b-q3", "name": "Qwen3.6 35B-A3B", "engine": "llamacpp", "quant": "35B-A3B MoE, UD-Q3_K_XL",
+      "note": "Everyday pick for 32 GB Macs: fast, sees images, reliable tool calls.",
+      "license": "Apache 2.0", "vision": true, "ctx": 65536, "disk_gb": 17.7, "smart": 4, "start": "~20 s",
+      "fit": {"32": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf", "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3.8-27b", "name": "Qwen3.8 27B", "engine": "llamacpp", "quant": "27B dense, UD-Q4_K_XL",
+      "note": "Smartest of the mid-size models. Dense, so about a third the speed of the MoE models.",
+      "license": "Apache 2.0", "vision": true, "ctx": 32768, "disk_gb": 18.5, "smart": 5, "start": "~20 s",
+      "fit": {"32": "estimate", "48": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf", "--mmproj", "/models/unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf", "-c", "32768", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3.6-35b-q5", "name": "Qwen3.6 35B-A3B Q5", "engine": "llamacpp", "quant": "35B-A3B MoE, UD-Q5_K_XL",
+      "note": "Near full quality all-rounder for 48 GB Macs, with vision and long context.",
+      "license": "Apache 2.0", "vision": true, "ctx": 65536, "disk_gb": 27.5, "smart": 4, "start": "~20 s",
+      "fit": {"48": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf", "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3.6-35b-q8", "name": "Qwen3.6 35B-A3B Q8", "engine": "llamacpp", "quant": "35B-A3B MoE, Q8_0",
+      "note": "Full quality all-rounder for 64 GB Macs and up, with 128K context.",
+      "license": "Apache 2.0", "vision": true, "ctx": 131072, "disk_gb": 37.8, "smart": 4, "start": "~20 s",
+      "fit": {"64": "estimate", "128": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-Q8_0.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-Q8_0.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-Q8_0.gguf", "--mmproj", "/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf", "-c", "131072", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    },
+    {
+      "id": "qwen3.5-122b", "name": "Qwen3.5 122B-A10B", "engine": "llamacpp", "quant": "122B-A10B MoE, UD-Q4_K_XL",
+      "note": "Big model for 128 GB Macs: far more knowledge than the 30B class, still quick with 10B active params.",
+      "license": "Apache 2.0", "vision": true, "ctx": 65536, "disk_gb": 77.9, "smart": 5, "start": "~20 s",
+      "fit": {"128": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf", "to": "models/unsloth/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf", "to": "models/unsloth/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf", "to": "models/unsloth/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf"},
+        {"url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.5-122B-A10B-GGUF/mmproj-BF16.gguf"}
+      ],
+      "args": ["-m", "/models/unsloth/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf", "--mmproj", "/models/unsloth/Qwen3.5-122B-A10B-GGUF/mmproj-BF16.gguf", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
     }
   ],
   "comfy": [

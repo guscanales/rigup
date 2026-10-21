@@ -19,17 +19,18 @@ assert s.next_ctx("some unrelated crash", 32768) is None
 
 # catalog merge: new upstream models are added and marked, existing ones are never overridden
 first = next(iter(s.MODELS))
+key = next(iter(s.GROUPS))   # "llm" on Linux, "mac" on macOS
 up = {"images": {"vllm": "vllm/vllm-openai:v9.9.9"},
-      "llm": [{"id": first, "name": "CHANGED"}, {"id": "brand-new", "name": "Brand New", "engine": "vllm", "fit": {"24": "estimate"}, "files": [{"repo": "x/y"}], "args": []}],
-      "comfy": []}
+      key: [{"id": first, "name": "CHANGED"}, {"id": "brand-new", "name": "Brand New", "engine": "vllm", "fit": {"24": "estimate"}, "files": [{"repo": "x/y"}], "args": []}]}
 s.write_json(s.CATALOG, up)
 s.load_catalog()
 assert s.MODELS[first]["name"] != "CHANGED" and not s.MODELS[first].get("new")
-assert s.MODELS["brand-new"]["new"] and s.MODELS["brand-new"]["image"] == "vllm/vllm-openai:v9.9.9"
+assert s.MODELS["brand-new"]["new"] and s.MODELS["brand-new"].get("image") == (None if s.MAC else "vllm/vllm-openai:v9.9.9")
 assert s.IMAGES["vllm"] != "vllm/vllm-openai:v9.9.9"
 
 # tuned args apply only on the GPU they were measured on
-s.gpu = lambda: {"name": "Test GPU", "mem_total": 24576, "mem_used": 0}
+s.gpu = lambda: {"name": "Test GPU", "mem_total": 24576, "mem_used": 0, "ram_gb": 36}
+assert s.tier_of(s.gpu()) == (32 if s.MAC else 24)   # a 36 GB Mac uses the 32 GB recipes
 m = s.MODELS[first]
 s.write_json(s.TUNED, {first: {"gpu": "Other GPU", "args": ["--tuned"]}})
 assert s.args_for(m) == m["args"]

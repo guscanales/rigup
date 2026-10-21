@@ -2,6 +2,7 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const FIT = { measured: 'measured', works: 'runs', estimate: 'estimate' };
+const ENGINE = { vllm: 'vLLM', llamacpp: 'llama.cpp', mlx: 'MLX' };
 let S = null, tier = null, armed = null, armTimer, note = null;
 
 const host = location.hostname;
@@ -41,7 +42,7 @@ function llmRow(m) {
   const rm = m.installed && !on ? act('rm:' + m.id, 'Remove', `Delete ${gb(m.disk_gb)} GB?`, 'data-small') : '';
   return `<div class="lab-row ${on ? 'on' : ''}" title="${esc(m.quant + ' · ' + m.license)}">
     <span class="lab-name"><span class="led ${on && S.healthy ? '' : 'idle'}"></span><b>${esc(m.name)}${m.vision ? ' <span class="badge vis">vision</span>' : ''} ${m.new ? '<span class="badge vis">new</span>' : ''} ${S.tuned[m.id] ? tunedBadge(m) : fitBadge(m)}</b>
-      <span class="mono dim">${esc(m.engine === 'vllm' ? 'vLLM' : 'llama.cpp')} · ${esc(m.quant)}${m.installed ? '' : ` · ${gb(m.disk_gb)} GB download`}</span>
+      <span class="mono dim">${esc(ENGINE[m.engine] || m.engine)} · ${esc(m.quant)}${m.installed ? '' : ` · ${gb(m.disk_gb)} GB download`}</span>
       <span class="lab-note">${esc(m.note)}</span></span>
     <span class="lab-stat"><b>${ctx(t ? t.ctx : m.ctx)}</b><i>context</i></span>
     <span class="lab-stat"><b>${t ? t.tps : m.tps ?? '—'}</b><i>tok/s</i></span>
@@ -85,11 +86,11 @@ const head = cols => `<div class="lab-row head mono"><span>Model</span>${cols.ma
 
 function render() {
   if (!S) return;
-  const g = S.gpu, mode = S.mode, models = S.models.filter(m => m.fit[tier]);
+  const g = S.gpu, mode = S.mode, models = S.models.filter(m => m.fit[tier]), mac = S.platform === 'mac';
   const llms = models.filter(m => m.group === 'llm'), packs = models.filter(m => m.group === 'comfy');
   const active = S.models.find(m => m.id === mode);
   $('#host').textContent = host;
-  $('#tiers').innerHTML = [24, 16, 12].map(t => `<a role="tab" data-tier="${t}" aria-selected="${t === tier}">${t} GB${t === S.tier ? ' · yours' : ''}</a>`).join('');
+  $('#tiers').innerHTML = S.tiers.map(t => `<a role="tab" data-tier="${t}" aria-selected="${t === tier}">${t} GB${t === S.tier ? ' · yours' : ''}</a>`).join('');
 
   $('#g-title').innerHTML = S.busy === 'switching' ? `Switching to <em>${esc(S.target === 'comfy' ? 'ComfyUI' : S.models.find(m => m.id === S.target)?.name)}</em>`
     : mode === 'comfy' ? 'Running <em>ComfyUI</em>' : active ? `Running <em>${esc(active.name)}</em>` : g ? 'GPU is <em>free</em>' : 'No GPU found';
@@ -98,21 +99,22 @@ function render() {
 
   const d = S.disk;
   $('#meters').innerHTML = (g ? [
-    ['VRAM', `${(g.mem_used / 1024).toFixed(1)}<span class="dim u"> / ${(g.mem_total / 1024).toFixed(0)} GB</span>`, g.mem_used / g.mem_total],
-    ['GPU load', `${g.util}<span class="dim u">%</span>`, g.util / 100],
-    ['Temperature', `${g.temp}<span class="dim u">°C</span>`, g.temp / 90],
-    ['Power', `${g.power}<span class="dim u"> W</span>`, g.power / 450],
-  ] : []).concat([[`Disk · ${d.free_gb} GB free`, `${d.total_gb - d.free_gb}<span class="dim u"> / ${d.total_gb} GB</span>`, 1 - d.free_gb / d.total_gb]])
+    [mac ? `Model memory · ${g.ram_gb} GB Mac` : 'VRAM', `${(g.mem_used / 1024).toFixed(1)}<span class="dim u"> / ${(g.mem_total / 1024).toFixed(0)} GB</span>`, g.mem_used / g.mem_total],
+    ['GPU load', `${g.util}<span class="dim u">%</span>`, g.util / 100, g.util],
+    ['Temperature', `${g.temp}<span class="dim u">°C</span>`, g.temp / 90, g.temp],
+    ['Power', `${g.power}<span class="dim u"> W</span>`, g.power / 450, g.power],
+  ].filter(r => r.length < 4 || r[3] != null) : []).concat([[`Disk · ${d.free_gb} GB free`, `${d.total_gb - d.free_gb}<span class="dim u"> / ${d.total_gb} GB</span>`, 1 - d.free_gb / d.total_gb]])
     .map(([l, v, p]) => `<div class="meter"><div class="stat-num">${v}</div><div class="mono stat-lbl">${l}</div><div class="bar"><i style="width:${Math.min(100, Math.round(p * 100))}%"></i></div></div>`).join('');
 
   const warn = tooBig() ? `<p class="warn-t mono tier-warn">Your card has ${S.tier} GB. These are the ${tier} GB recipes, shown for reference.</p>` : '';
   $('#lab').innerHTML = `<div class="mode-meta mono"><span>01</span><span>${active ? '● Active' : ''}</span></div>
-    <h3>Lab · LLM</h3><p>One model at a time serves an OpenAI-compatible API on :${S.ports.llm}, used by Open WebUI and coding agents. Missing files download on the first switch.</p>${warn}
-    <div class="lab-rows">${llms.length ? head(['context', 'tok/s', 'smarts', 'GB VRAM', '']) + llms.map(llmRow).join('') : `<span class="muted">No LLM recipes for ${tier} GB yet.</span>`}</div>
-    <div class="mono dim mode-spec">tok/s and VRAM measured on an RTX 3090 (24 GB); "tuned" rows show numbers from your own card. ≈ = estimate. Smarts: rough 1–5. Hover a row for quant and license.</div>
+    <h3>Lab · LLM</h3><p>One model at a time serves an OpenAI-compatible API on :${S.ports.llm}, used by ${mac ? 'chat apps' : 'Open WebUI'} and coding agents. Missing files download on the first switch.</p>${warn}
+    <div class="lab-rows">${llms.length ? head(['context', 'tok/s', 'smarts', mac ? 'GB used' : 'GB VRAM', '']) + llms.map(llmRow).join('') : `<span class="muted">No LLM recipes for ${tier} GB yet.</span>`}</div>
+    <div class="mono dim mode-spec">tok/s and ${mac ? 'memory measured on an M4 Pro Mac (24 GB)' : 'VRAM measured on an RTX 3090 (24 GB)'}; "tuned" rows show numbers from your own ${mac ? 'Mac' : 'card'}. ≈ = estimate. Smarts: rough 1–5. Hover a row for quant and license.</div>
     <div class="comfy-go">${act('tune', 'Auto-tune', 'Tap again · tests every installed model, a few min each')}
       ${Object.keys(S.tuned).length ? `<button class="lab-go" data-share>Share results</button>` : ''}</div>${releases()}`;
 
+  $('#comfy').hidden = mac;   // images and video aren't on the Mac version yet
   const comfyOn = mode === 'comfy', ck = 'switch:comfy';
   $('#comfy').innerHTML = `<div class="mode-meta mono"><span>02</span><span>${comfyOn ? (S.healthy ? '● Active' : 'Loading…') : ''}</span></div>
     <h3>ComfyUI · images &amp; video</h3><p>ComfyUI takes the whole card on :${S.ports.comfy}. Install the model packs you want, then open the template or workflow named under each one.</p>${warn}
@@ -126,12 +128,12 @@ function render() {
     ['Open WebUI', `http://${host}:${S.ports.webui}`, true, llmUp ? 'chat with the Lab model' : 'needs a Lab model for answers'],
     ['LLM API', `http://${host}:${S.ports.llm}/v1`, llmUp, llmUp ? `model "${mode}"` : 'needs a Lab model', true],
     ['ComfyUI', `http://${host}:${S.ports.comfy}`, comfyUp, comfyUp ? 'images and video' : 'needs ComfyUI mode'],
-  ];
+  ].filter(([n, url]) => Object.values(S.ports).includes(+url.split(':')[2].split('/')[0]) || n === 'Dashboard');
   $('#g-links').innerHTML = links.map(([n, url, on, sub, copy]) => `<div class="link-row ${on ? '' : 'off'}">
     <span class="port mono">:${esc(url.split(':')[2].split('/')[0])}</span>
     <div style="min-width:0"><div class="app-name"><span class="led ${on ? '' : 'idle'}"></span>${esc(n)}</div><div class="app-host">${esc(url.replace('http://', ''))} · ${esc(sub)}</div></div>
     ${copy ? `<button class="link-act" data-copy="${esc(url)}">Copy URL</button>` : `<a class="link-act" href="${esc(url)}" target="_blank" rel="noopener">Open ↗</a>`}</div>`).join('');
-  $('#tok-state').textContent = S.hf_token ? 'saved' : 'needed for FLUX 3 Klein and LTX-2.5';
+  $('#tok-state').textContent = S.hf_token ? 'saved' : mac ? 'only needed for gated models' : 'needed for FLUX 3 Klein and LTX-2.5';
 
   const log = $('#g-log');
   log.textContent = (S.log.join('\n') || 'Nothing yet.') + (S.error || note ? '\n\nERROR: ' + (note || S.error) : '');

@@ -2,6 +2,8 @@
 
 Got a gaming GPU? Run one install script and start using local AI models: chat, coding, images and video, all switched from a web page.
 
+Also runs on Apple Silicon Macs (LLMs for now): see [On a Mac](#on-a-mac).
+
 No setup, no config files to learn. RigUp installs the driver, Docker and the engines, then gives you a dashboard. Pick a model and it downloads whatever is missing, stops whatever currently holds the card, and starts the new one. A gaming card holds one big model at a time, so that's how RigUp runs them. The recipes (launch flags, quantization, context length) are tuned for 24 GB cards and come with suggested options for 16 GB and 12 GB cards.
 
 ![RigUp dashboard](docs/dashboard.png)
@@ -117,6 +119,51 @@ Options, set before running:
 ```bash
 RIGUP_PORT=9000 ./install.sh          # dashboard on another port
 RIGUP_DATA=/mnt/big ./install.sh      # keep models on another disk
+```
+
+## On a Mac
+
+RigUp also runs on Apple Silicon Macs (M1 or newer). For now it runs the LLMs only: chat, coding agents and the API. Images and video are next.
+
+![RigUp on a Mac](docs/dashboard-mac.png)
+
+*Qwen3 Coder 30B on an M4 Pro Mac with 24 GB.*
+
+```bash
+git clone https://github.com/guscanales/rigup.git
+cd rigup
+./install-mac.sh
+```
+
+You need [Homebrew](https://brew.sh). The installer adds llama.cpp from Homebrew, asks for a dashboard password, and installs the dashboard as a login service. It uses the Python that comes with macOS, so nothing else gets installed.
+
+**What's different from the Linux version:**
+
+- **One engine, llama.cpp with Metal**, run as a normal process instead of in Docker (Docker on a Mac can't reach the GPU). I measured MLX too: it was about 10% faster, but it has no Anthropic API, so Claude Code couldn't connect. llama.cpp serves both APIs.
+- **Ports:** the dashboard on 8090 and the LLM API on 8000. There's no Open WebUI on the Mac version; any chat app that takes an OpenAI-compatible URL works, and the coding agent setup below is the same.
+- **Recipes by unified memory:** tabs for 16, 24, 32, 48, 64 and 128 GB Macs. A Mac with an in-between size (36 or 96 GB) uses the tier below it. macOS lets the GPU use roughly three quarters of the memory, so a 24 GB Mac has about 18 GB for models; the dashboard shows the exact figure.
+- **Memory meter only.** macOS doesn't expose GPU load, temperature or power without admin rights, so the dashboard shows the memory the model is using.
+- **Keep it awake.** The server stops while the Mac sleeps. For an always-on box, turn on "Prevent automatic sleeping when the display is off" in System Settings > Energy.
+
+**Measured on an M4 Pro with 24 GB** (memory bandwidth 273 GB/s, about a third of an RTX 3090):
+
+| Model | Tokens per second | Memory | Context |
+|---|---|---|---|
+| Qwen3 Coder 30B (Q3) | 66 tok/s | 16.4 GB | 32K |
+| Qwen3.6 35B-A3B Q2 | 58 tok/s | 13.6 GB | 32K |
+| Qwen3.5 9B | 33 tok/s | 8.8 GB | 64K |
+
+Reading a long prompt ran at about 460 tokens per second, so an 8K token prompt takes around 18 seconds before the answer starts. That's the main gap to an NVIDIA card for coding agents, which send long prompts.
+
+The models for bigger Macs (32 to 128 GB) are estimates sized from file sizes, including a 122B model for 128 GB Macs. If you have one of those, run Auto-tune and press Share results.
+
+**Uninstall on a Mac:**
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.rigup.dashboard.plist
+rm ~/Library/LaunchAgents/com.rigup.dashboard.plist
+rm -rf data/            # deletes every downloaded model
+brew uninstall llama.cpp   # optional
 ```
 
 ## Using it
@@ -311,7 +358,10 @@ Each model's original release on Hugging Face, and the repo the dashboard downlo
 | Qwen3 Coder 30B | [Qwen/Qwen3-Coder-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) | [QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ](https://huggingface.co/QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ) |
 | Qwen3.8 27B | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4) |
 | Qwen3.8 27B 256K, Qwen3.8 27B Q2 | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | [unsloth/Qwen3.8-27B-GGUF](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) |
-| Qwen3.6 35B-A3B, Qwen3.6 35B-A3B Q2 | [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) |
+| Qwen3.6 35B-A3B, Qwen3.6 35B-A3B Q2 (and the Mac Q5 and Q8 builds) | [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) |
+| Qwen3 Coder 30B (Mac) | [Qwen/Qwen3-Coder-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) | [unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF) |
+| Qwen3.5 9B (Mac) | [Qwen/Qwen3.5-9B](https://huggingface.co/Qwen/Qwen3.5-9B) | [unsloth/Qwen3.5-9B-GGUF](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF) |
+| Qwen3.5 122B-A10B (Mac) | [Qwen/Qwen3.5-122B-A10B](https://huggingface.co/Qwen/Qwen3.5-122B-A10B) | [unsloth/Qwen3.5-122B-A10B-GGUF](https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF) |
 | Z-Image Turbo | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | [Comfy-Org/z_image_turbo](https://huggingface.co/Comfy-Org/z_image_turbo) |
 | FLUX 3 Klein | [black-forest-labs/flux-3-image-klein](https://huggingface.co/black-forest-labs/flux-3-image-klein) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) |
 | FLUX 3 Klein Base | [black-forest-labs/flux-3-image-klein-base](https://huggingface.co/black-forest-labs/flux-3-image-klein-base) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) |
@@ -327,7 +377,8 @@ Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://githu
 
 ```
 rigup/
-├── install.sh          one-time setup
+├── install.sh          one-time setup (Ubuntu + NVIDIA)
+├── install-mac.sh      one-time setup (Apple Silicon Mac)
 ├── server.py           dashboard + API (Python standard library only)
 ├── test_server.py      self-check for the parts that need no GPU: python3 test_server.py
 ├── recipes.json        every model: files, launch flags, sizes, measured numbers
@@ -341,6 +392,7 @@ rigup/
     ├── installed/      one marker file per finished download
     ├── tuned.json      auto-tune results for your GPU
     ├── catalog.json    newest model list from GitHub, fetched by auto-tune
+    ├── engine.log      Mac only: output of the running llama.cpp
     └── releases.json   recent Hugging Face models with no recipe yet
 ```
 
