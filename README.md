@@ -168,14 +168,7 @@ Memory is ComfyUI's peak, text encoder included; Krea nearly fills a 24 GB Mac, 
 
 The models for bigger Macs (32 to 128 GB) are estimates sized from file sizes, including a 122B model for 128 GB Macs. If you have one of those, run Auto-tune and press Share results.
 
-**Uninstall on a Mac:**
-
-```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.rigup.dashboard.plist
-rm ~/Library/LaunchAgents/com.rigup.dashboard.plist
-rm -rf data/            # deletes every downloaded model
-brew uninstall llama.cpp uv   # optional
-```
+To stop or remove it, the same `./stop.sh` and `./uninstall.sh` as on Linux work on a Mac; see [Stop and uninstall](#stop-and-uninstall).
 
 ## Using it
 
@@ -390,6 +383,8 @@ Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://githu
 rigup/
 ├── install.sh          one-time setup (Ubuntu + NVIDIA)
 ├── install-mac.sh      one-time setup (Apple Silicon Mac)
+├── stop.sh             stop everything (Linux and Mac)
+├── uninstall.sh        remove the services, then ask before deleting data/
 ├── server.py           dashboard + API (Python standard library only)
 ├── test_server.py      self-check for the parts that need no GPU: python3 test_server.py
 ├── recipes.json        every model: files, launch flags, sizes, measured numbers
@@ -432,13 +427,17 @@ Auto-tune is the only feature that contacts anything besides Hugging Face downlo
 - **Something else is using the GPU:** `nvidia-smi` lists the processes. RigUp only stops its own containers (`rigup-llm`, `rigup-comfy`).
 - **Download stopped halfway:** press the button again. Downloads resume where they stopped.
 
-## Uninstall
+## Stop and uninstall
+
+Both scripts work on Linux and on a Mac.
 
 ```bash
-sudo systemctl disable --now rigup
-sudo rm /etc/systemd/system/rigup.service
-docker rm -f rigup-llm rigup-comfy rigup-webui
-sudo rm -rf data/       # deletes every downloaded model and chat history (sudo: the engines write some files as root)
+./stop.sh        # stop the model or ComfyUI, Open WebUI and the dashboard; nothing is deleted
+./uninstall.sh   # stop everything, remove the service and containers, then ask before deleting data/
 ```
 
-Docker, the NVIDIA driver and the container toolkit stay installed.
+To only free the GPU and keep the dashboard up, press **Free GPU** in the dashboard instead.
+
+After `stop.sh`, the dashboard comes back on the next boot (Linux) or login (Mac), or right away with `sudo systemctl start rigup && docker start rigup-webui` on Linux and `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.rigup.dashboard.plist` on a Mac.
+
+`uninstall.sh` leaves the tools the installers added: Docker, the NVIDIA driver and the container toolkit on Linux, and llama.cpp and uv from Homebrew on a Mac. It prints the commands to remove the engine images or the Homebrew packages if you want the space back.
