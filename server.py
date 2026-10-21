@@ -26,13 +26,16 @@ CATALOG = os.path.join(DATA, "catalog.json")     # newest recipes.json from GitH
 RELEASES = os.path.join(DATA, "releases.json")   # recent Hugging Face models from the watch list
 TUNED = os.path.join(DATA, "tuned.json")         # auto-tune results for this GPU
 REPO = "guscanales/rigup"
-MAC = sys.platform == "darwin"   # Apple Silicon: llama.cpp (Metal) as a native process instead of Docker, LLMs only for now
+MAC = sys.platform == "darwin"   # Apple Silicon: llama.cpp (Metal) and ComfyUI (MPS) as native processes instead of Docker
 ENGINE = os.path.join(DATA, "engine.json")    # macOS: pid and model of the running engine
 ENGINE_LOG = os.path.join(DATA, "engine.log")
 LLAMA_SERVER = shutil.which("llama-server") or "/opt/homebrew/bin/llama-server"
+UV = shutil.which("uv") or "/opt/homebrew/bin/uv"
+COMFY_SRC = [("https://github.com/comfyanonymous/ComfyUI", "v0.42.3", "app"),   # macOS: ComfyUI plus the GGUF loader, pinned
+             ("https://github.com/city96/ComfyUI-GGUF", "6ea2651e7df66d7585f6ffee804b20e92fb38b8a", "basedir/custom_nodes/ComfyUI-GGUF")]
 TIERS = [16, 24, 32, 48, 64, 128] if MAC else [24, 16, 12]   # GB of unified memory on a Mac, of VRAM on NVIDIA
-GROUPS = {"mac": "llm"} if MAC else {"llm": "llm", "comfy": "comfy"}   # recipes.json list -> dashboard group
-PORTS = {"llm": 8000} if MAC else {"llm": 8000, "comfy": 8188, "webui": 3000}
+GROUPS = {"mac": "llm", "mac_comfy": "comfy"} if MAC else {"llm": "llm", "comfy": "comfy"}   # recipes.json list -> dashboard group
+PORTS = {"llm": 8000, "comfy": 8188} if MAC else {"llm": 8000, "comfy": 8188, "webui": 3000}
 HEALTH = {"llm": "http://127.0.0.1:8000/v1/models", "comfy": "http://127.0.0.1:8188/"}
 
 
@@ -241,7 +244,7 @@ def running():
     if MAC:
         e = read_json(ENGINE, {})
         cmd = sh("ps", "-o", "command=", "-p", str(e.get("pid", 0)), check=False)
-        return {"llm": e["id"]} if "llama-server" in cmd else {}
+        return {"comfy" if e["id"] == "comfy" else "llm": e["id"]} if "llama-server" in cmd or "main.py" in cmd else {}
     out = sh("docker", "ps", "--filter", "label=rigup.mode", "--format", '{{.Names}} {{.Label "rigup.mode"}}', check=False)
     return {name.removeprefix("rigup-"): mode for name, mode in (l.split() for l in out.splitlines() if l.strip())}
 
@@ -303,15 +306,42 @@ def run_cmd(mid, args=None):
     return base + [m.get("image") or IMAGES["llamacpp"], *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
 
 
-def start_native(mid, args):
+def setup_comfy_mac():
+    """First ComfyUI start on a Mac: fetch the pinned sources and build its Python environment (uv makes re-runs instant)."""
+    comfy = os.path.join(DATA, "comfyui")
+    for url, ref, d in COMFY_SRC:
+        d = os.path.join(comfy, d)
+        if not os.path.isdir(os.path.join(d, ".git")):
+            log(f"downloading {url.rsplit('/', 1)[1]} {ref[:12]}")
+            os.makedirs(d, exist_ok=True)
+            sh("git", "-C", d, "init", "-q")
+            sh("git", "-C", d, "fetch", "-q", "--depth", "1", url, ref)
+            sh("git", "-C", d, "checkout", "-q", "FETCH_HEAD")
+    app = os.path.join(comfy, "app")
+    if not os.path.exists(os.path.join(app, ".venv/bin/python")):
+        log("installing ComfyUI's Python packages (one time, a few minutes)")
+        sh(UV, "venv", "-q", "--python", "3.12", os.path.join(app, ".venv"))
+    sh(UV, "pip", "install", "-q", "--python", os.path.join(app, ".venv/bin/python"), "-r", os.path.join(app, "requirements.txt"),
+       "-r", os.path.join(comfy, "basedir/custom_nodes/ComfyUI-GGUF/requirements.txt"))
+    # Workflows for the GGUF files, shown in ComfyUI's Workflows sidebar
+    shutil.copytree(os.path.join(ROOT, "workflows/mac"), os.path.join(comfy, "basedir/user/default/workflows"), dirs_exist_ok=True)
+    return app
+
+
+def start_native(mid, args=None):
     """macOS: run the engine as a plain process in its own session, so it survives a dashboard restart."""
-    m = MODELS[mid]
-    models = os.path.join(DATA, "models")
-    args = [models + a[len("/models"):] if a.startswith("/models/") else a for a in args]
-    cmd = [LLAMA_SERVER, *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
+    if mid == "comfy":
+        cwd = setup_comfy_mac()
+        # PyTorch's own attention is a little faster on MPS than ComfyUI's default (measured on an M4 Pro)
+        cmd = [".venv/bin/python", "main.py", "--listen", "0.0.0.0", "--port", str(PORTS["comfy"]),
+               "--base-directory", os.path.join(DATA, "comfyui/basedir"), "--use-pytorch-cross-attention"]
+    else:
+        models, cwd = os.path.join(DATA, "models"), DATA
+        args = [models + a[len("/models"):] if a.startswith("/models/") else a for a in args or args_for(MODELS[mid])]
+        cmd = [LLAMA_SERVER, *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
     with open(ENGINE_LOG, "w") as out:
         key = {"LLAMA_API_KEY": config()["api_key"]} if config().get("api_key") else {}
-        p = subprocess.Popen(cmd, cwd=DATA, stdout=out, stderr=subprocess.STDOUT, start_new_session=True, env={**os.environ, **key})
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True, env={**os.environ, **key})
     write_json(ENGINE, {"pid": p.pid, "id": mid})
     return p
 
@@ -325,7 +355,7 @@ def switch(mid, args=None):
     stop_gpu()
     if MAC:
         log(f"starting {name}")
-        p = start_native(mid, args or args_for(MODELS[mid]))
+        p = start_native(mid, args)
         alive, logs, where = lambda: p.poll() is None, engine_logs, ENGINE_LOG
     else:
         cmd = run_cmd(mid, args)
@@ -657,7 +687,7 @@ class Handler(BaseHTTPRequestHandler):
                 job("stopping", None, stop_gpu)
             elif path == "/api/autotune":
                 job("tuning", None, autotune)
-            elif mid != "comfy" and mid not in MODELS or MAC and mid == "comfy":
+            elif mid != "comfy" and mid not in MODELS:
                 return self.send(400, {"error": f"unknown model {mid!r}"})
             elif path == "/api/switch":
                 if mid != "comfy" and MODELS[mid]["group"] != "llm":

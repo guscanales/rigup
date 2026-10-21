@@ -2,7 +2,7 @@
 
 Turn a gaming PC or a MacBook/Mac Mini into an AI server. Run one install script and start using local AI models: chat, coding, images and video, all switched from a web page.
 
-On a gaming PC with an NVIDIA card you get everything. On an Apple Silicon Mac you get the chat and coding models for now: see [On a Mac](#on-a-mac).
+On a gaming PC with an NVIDIA card you get everything. On an Apple Silicon Mac you get chat, coding and images (no video yet): see [On a Mac](#on-a-mac).
 
 No setup, no config files to learn. RigUp installs the driver, Docker and the engines, then gives you a dashboard. Pick a model and it downloads whatever is missing, stops whatever currently holds the card, and starts the new one. A gaming card holds one big model at a time, so that's how RigUp runs them. The recipes (launch flags, quantization, context length) are tuned for 24 GB cards and come with suggested options for 16 GB and 12 GB cards.
 
@@ -123,7 +123,7 @@ RIGUP_DATA=/mnt/big ./install.sh      # keep models on another disk
 
 ## On a Mac
 
-RigUp also runs on Apple Silicon Macs (M1 or newer). For now it runs the LLMs only: chat, coding agents and the API. Images and video are next.
+RigUp also runs on Apple Silicon Macs (M1 or newer): the LLMs (chat, coding agents and the API) and ComfyUI with three image models. Video isn't on the Mac version; LTX-2.5 needs more memory and speed than a 24 GB Mac has.
 
 ![RigUp on a Mac](docs/dashboard-mac.png)
 
@@ -135,12 +135,13 @@ cd rigup
 ./install-mac.sh
 ```
 
-You need [Homebrew](https://brew.sh). The installer adds llama.cpp from Homebrew, asks for a dashboard password, and installs the dashboard as a login service. It uses the Python that comes with macOS, so nothing else gets installed.
+You need [Homebrew](https://brew.sh). The installer adds llama.cpp and [uv](https://github.com/astral-sh/uv) from Homebrew, asks for a dashboard password, and installs the dashboard as a login service. The dashboard runs on the Python that comes with macOS. The first time you switch to ComfyUI, it downloads ComfyUI and builds its own Python environment with uv, which takes a few minutes.
 
 **What's different from the Linux version:**
 
-- **One engine, llama.cpp with Metal**, run as a normal process instead of in Docker (Docker on a Mac can't reach the GPU). I measured MLX too: it was about 10% faster, but it has no Anthropic API, so Claude Code couldn't connect. llama.cpp serves both APIs.
-- **Ports:** the dashboard on 8090 and the LLM API on 8000. There's no Open WebUI on the Mac version; any chat app that takes an OpenAI-compatible URL works, and the coding agent setup below is the same.
+- **Native engines instead of Docker** (Docker on a Mac can't reach the GPU): llama.cpp with Metal for LLMs, ComfyUI on PyTorch's Metal backend for images. I measured MLX too: it was about 10% faster, but it has no Anthropic API, so Claude Code couldn't connect. llama.cpp serves both APIs.
+- **Image models as GGUF.** The int8 files the Linux version uses need a matrix operation Apple GPUs don't support yet, so the Mac packs use GGUF versions of the same models (the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) loader comes with the install). ComfyUI's built-in templates expect the int8 files, so open the `mac_` workflows from the Workflows sidebar instead.
+- **Ports:** the dashboard on 8090, the LLM API on 8000 and ComfyUI on 8188. There's no Open WebUI on the Mac version; any chat app that takes an OpenAI-compatible URL works, and the coding agent setup below is the same.
 - **Recipes by unified memory:** tabs for 16, 24, 32, 48, 64 and 128 GB Macs. A Mac with an in-between size (36 or 96 GB) uses the tier below it. macOS lets the GPU use roughly three quarters of the memory, so a 24 GB Mac has about 18 GB for models; the dashboard shows the exact figure.
 - **Memory meter only.** macOS doesn't expose GPU load, temperature or power without admin rights, so the dashboard shows the memory the model is using.
 - **Keep it awake.** The server stops while the Mac sleeps. For an always-on box, turn on "Prevent automatic sleeping when the display is off" in System Settings > Energy.
@@ -155,6 +156,16 @@ You need [Homebrew](https://brew.sh). The installer adds llama.cpp from Homebrew
 
 Reading a long prompt ran at about 460 tokens per second, so an 8K token prompt takes around 18 seconds before the answer starts. That's the main gap to an NVIDIA card for coding agents, which send long prompts.
 
+Images, same Mac, 1024×1024, warm run:
+
+| Pack | Steps | Time | Memory | Download | Open in ComfyUI |
+|---|---|---|---|---|---|
+| Z-Image Turbo (Q8) | 8 | 78 s | 19.1 GB | 15.6 GB | Workflow `mac_z_image_turbo` |
+| FLUX 3 Klein (Q8) | 15 | 105 s | 17.7 GB | 15.3 GB | Workflow `mac_flux3_klein` |
+| Krea 2 Turbo (Q5_K_M) | 8 | 210 s | 21.7 GB | 18.0 GB | Workflow `mac_krea2_turbo` |
+
+Memory is ComfyUI's peak, text encoder included; Krea nearly fills a 24 GB Mac, so close other apps while it runs. That's roughly ten times slower than the RTX 3090. The GPU is the limit, not the file size: Z-Image ran at the same speed from Q4, Q8 and BF16 files. Klein and Krea share a text encoder, so installing both downloads it once. Klein on the Mac is text to image only; its prompt upsampler and the edit workflows use int8 files.
+
 The models for bigger Macs (32 to 128 GB) are estimates sized from file sizes, including a 122B model for 128 GB Macs. If you have one of those, run Auto-tune and press Share results.
 
 **Uninstall on a Mac:**
@@ -163,7 +174,7 @@ The models for bigger Macs (32 to 128 GB) are estimates sized from file sizes, i
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.rigup.dashboard.plist
 rm ~/Library/LaunchAgents/com.rigup.dashboard.plist
 rm -rf data/            # deletes every downloaded model
-brew uninstall llama.cpp   # optional
+brew uninstall llama.cpp uv   # optional
 ```
 
 ## Using it
@@ -362,16 +373,16 @@ Each model's original release on Hugging Face, and the repo the dashboard downlo
 | Qwen3 Coder 30B (Mac) | [Qwen/Qwen3-Coder-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) | [unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF) |
 | Qwen3.5 9B (Mac) | [Qwen/Qwen3.5-9B](https://huggingface.co/Qwen/Qwen3.5-9B) | [unsloth/Qwen3.5-9B-GGUF](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF) |
 | Qwen3.5 122B-A10B (Mac) | [Qwen/Qwen3.5-122B-A10B](https://huggingface.co/Qwen/Qwen3.5-122B-A10B) | [unsloth/Qwen3.5-122B-A10B-GGUF](https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF) |
-| Z-Image Turbo | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | [Comfy-Org/z_image_turbo](https://huggingface.co/Comfy-Org/z_image_turbo) |
-| FLUX 3 Klein | [black-forest-labs/flux-3-image-klein](https://huggingface.co/black-forest-labs/flux-3-image-klein) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) |
+| Z-Image Turbo | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | [Comfy-Org/z_image_turbo](https://huggingface.co/Comfy-Org/z_image_turbo); Mac: [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF) |
+| FLUX 3 Klein | [black-forest-labs/flux-3-image-klein](https://huggingface.co/black-forest-labs/flux-3-image-klein) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy); Mac: [unsloth/flux-3-image-klein-GGUF](https://huggingface.co/unsloth/flux-3-image-klein-GGUF), text encoder from [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2), VAE from [Comfy-Org/flux2-dev](https://huggingface.co/Comfy-Org/flux2-dev) |
 | FLUX 3 Klein Base | [black-forest-labs/flux-3-image-klein-base](https://huggingface.co/black-forest-labs/flux-3-image-klein-base) | [black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy) |
-| Krea 2 Turbo | [krea/Krea-2-Turbo](https://huggingface.co/krea/Krea-2-Turbo) (base: [krea/Krea-2-Raw](https://huggingface.co/krea/Krea-2-Raw)) | [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) |
+| Krea 2 Turbo | [krea/Krea-2-Turbo](https://huggingface.co/krea/Krea-2-Turbo) (base: [krea/Krea-2-Raw](https://huggingface.co/krea/Krea-2-Raw)) | [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2); Mac: [vantagewithai/Krea-2-Turbo-GGUF](https://huggingface.co/vantagewithai/Krea-2-Turbo-GGUF) |
 | Qwen-Image 2.1 Turbo | [Qwen/Qwen-Image-2.1-Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo), prompt enhancers [Qwen/Qwen-Image-2.1-PE-T2I](https://huggingface.co/Qwen/Qwen-Image-2.1-PE-T2I) and [Qwen/Qwen-Image-2.1-PE-I2I](https://huggingface.co/Qwen/Qwen-Image-2.1-PE-I2I) | [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) |
 | Qwen-Image 2.1 | [Qwen/Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) | [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) |
 | LTX-2.5 | [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) | [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5), plus the Gemma 4 E2B text encoder from [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4) (original: [google/gemma-4-E2B-it](https://huggingface.co/google/gemma-4-E2B-it)) |
 | SeedVR2 3B | [ByteDance-Seed/SeedVR2-3B](https://huggingface.co/ByteDance-Seed/SeedVR2-3B) | [Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2) |
 
-Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://github.com/ggml-org/llama.cpp), [ComfyUI](https://github.com/Comfy-Org/ComfyUI) (run with the [mmartial/comfyui-nvidia-docker](https://github.com/mmartial/ComfyUI-Nvidia-Docker) image), [Open WebUI](https://github.com/open-webui/open-webui).
+Engines: [vLLM](https://github.com/vllm-project/vllm), [llama.cpp](https://github.com/ggml-org/llama.cpp), [ComfyUI](https://github.com/Comfy-Org/ComfyUI) (run with the [mmartial/comfyui-nvidia-docker](https://github.com/mmartial/ComfyUI-Nvidia-Docker) image on Linux, natively with [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) on a Mac), [Open WebUI](https://github.com/open-webui/open-webui).
 
 ## Files on disk
 
@@ -383,6 +394,7 @@ rigup/
 ├── test_server.py      self-check for the parts that need no GPU: python3 test_server.py
 ├── recipes.json        every model: files, launch flags, sizes, measured numbers
 ├── web/                the dashboard page
+├── workflows/mac/      ComfyUI workflows for the Mac's GGUF image packs
 └── data/               created at install; not in git
     ├── config.json     password hash, Hugging Face token (chmod 600)
     ├── models/         LLM weights, by Hugging Face repo
@@ -392,7 +404,7 @@ rigup/
     ├── installed/      one marker file per finished download
     ├── tuned.json      auto-tune results for your GPU
     ├── catalog.json    newest model list from GitHub, fetched by auto-tune
-    ├── engine.log      Mac only: output of the running llama.cpp
+    ├── engine.log      Mac only: output of the running llama.cpp or ComfyUI
     └── releases.json   recent Hugging Face models with no recipe yet
 ```
 

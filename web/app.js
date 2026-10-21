@@ -114,12 +114,11 @@ function render() {
     <div class="comfy-go">${act('tune', 'Auto-tune', 'Tap again · tests every installed model, a few min each')}
       ${Object.keys(S.tuned).length ? `<button class="lab-go" data-share>Share results</button>` : ''}</div>${releases()}`;
 
-  $('#comfy').hidden = mac;   // images and video aren't on the Mac version yet
   const comfyOn = mode === 'comfy', ck = 'switch:comfy';
   $('#comfy').innerHTML = `<div class="mode-meta mono"><span>02</span><span>${comfyOn ? (S.healthy ? '● Active' : 'Loading…') : ''}</span></div>
-    <h3>ComfyUI · images &amp; video</h3><p>ComfyUI takes the whole card on :${S.ports.comfy}. Install the model packs you want, then open the template or workflow named under each one.</p>${warn}
+    <h3>ComfyUI · ${mac ? 'images' : 'images &amp; video'}</h3><p>ComfyUI takes the whole ${mac ? 'GPU' : 'card'} on :${S.ports.comfy}. Install the model packs you want, then open the template or workflow named under each one.</p>${warn}
     <div class="lab-rows">${packs.length ? head(['steps', 'sec', 'max size', 'license', '']) + packs.map(comfyRow).join('') : `<span class="muted">No image recipes for ${tier} GB yet.</span>`}</div>
-    <div class="mono dim mode-spec">1024×1024, warm run. Max size = largest native output. The first ComfyUI start installs ComfyUI itself and takes several minutes.</div>
+    <div class="mono dim mode-spec">1024×1024, warm run${mac ? ', on an M4 Pro Mac (24 GB)' : ''}. Max size = largest native output. The first ComfyUI start installs ComfyUI itself and takes several minutes.</div>
     <div class="comfy-go">${comfyOn ? `<span class="lab-go on">${S.healthy ? 'Active' : 'Loading…'}</span>` : act(ck, 'Switch to ComfyUI', mode ? 'Tap again · the LLM stops' : 'Tap again to start')}</div>`;
 
   const llmUp = mode && mode !== 'comfy' && S.healthy, comfyUp = comfyOn && S.healthy;

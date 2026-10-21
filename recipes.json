@@ -1,5 +1,5 @@
 {
-  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>. mac: the same idea for Apple Silicon Macs, all on llama.cpp; fit keys are GB of unified memory. watch: Hugging Face authors that auto-tune checks for new models without a recipe yet.",
+  "_doc": "Every model the dashboard can run. fit: per VRAM tier, 'measured' = run and timed on that card, 'works' = run on that card but not timed, 'estimate' = sized on paper, not run yet. Files: {repo} = whole Hugging Face repo into data/models/<repo>; {url, dir} = one file into ComfyUI's models/<dir>; {url, to} = one file at data/<to>. mac: the same idea for Apple Silicon Macs, all on llama.cpp; mac_comfy: image models for ComfyUI on a Mac, as GGUF because the int8 files don't run on Apple GPUs. On a Mac, fit keys are GB of unified memory. watch: Hugging Face authors that auto-tune checks for new models without a recipe yet.",
   "watch": ["Qwen", "unsloth", "google", "mistralai", "Comfy-Org", "black-forest-labs", "Lightricks"],
   "images": {
     "vllm": "vllm/vllm-openai:v0.26.0",
@@ -197,6 +197,41 @@
         {"url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/mmproj-BF16.gguf", "to": "models/unsloth/Qwen3.5-122B-A10B-GGUF/mmproj-BF16.gguf"}
       ],
       "args": ["-m", "/models/unsloth/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf", "--mmproj", "/models/unsloth/Qwen3.5-122B-A10B-GGUF/mmproj-BF16.gguf", "-c", "65536", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--jinja", "--load-mode", "none"]
+    }
+  ],
+  "mac_comfy": [
+    {
+      "id": "z-image-turbo", "name": "Z-Image Turbo", "kind": "image", "license": "Apache 2.0",
+      "note": "Best for photos. Commercial use OK. Q8 GGUF.", "open": "Workflows sidebar: mac_z_image_turbo",
+      "steps": 8, "secs": 78, "max": "2048²", "disk_gb": 15.6,
+      "fit": {"24": "measured", "32": "estimate", "48": "estimate", "64": "estimate", "128": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/resolve/main/z-image-turbo-Q8_0.gguf", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors", "dir": "vae"}
+      ]
+    },
+    {
+      "id": "flux3-klein", "name": "FLUX 3 Klein", "kind": "image", "license": "FLUX Kommunity (free under $5M revenue)",
+      "note": "BFL 5.6B, Q8 GGUF. Text to image; the Mac version skips the prompt upsampler.", "open": "Workflows sidebar: mac_flux3_klein",
+      "steps": 15, "secs": 105, "max": "4K", "disk_gb": 15.3,
+      "fit": {"24": "measured", "32": "estimate", "48": "estimate", "64": "estimate", "128": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/unsloth/flux-3-image-klein-GGUF/resolve/main/flux-3-image-klein-Q8_0.gguf", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_bf16.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors", "dir": "vae"}
+      ]
+    },
+    {
+      "id": "krea2-turbo", "name": "Krea 2 Turbo", "kind": "image", "license": "Krea community",
+      "note": "Krea 12.9B, aesthetic photos and art. Q5_K_M GGUF. Slowest of the three; uses about 22 GB, so close other apps on a 24 GB Mac.", "open": "Workflows sidebar: mac_krea2_turbo",
+      "steps": 8, "secs": 210, "max": "2048²", "disk_gb": 18.0,
+      "fit": {"24": "measured", "32": "estimate", "48": "estimate", "64": "estimate", "128": "estimate"},
+      "files": [
+        {"url": "https://huggingface.co/vantagewithai/Krea-2-Turbo-GGUF/resolve/main/krea2_turbo-Q5_K_M.gguf", "dir": "diffusion_models"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_bf16.safetensors", "dir": "text_encoders"},
+        {"url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors", "dir": "vae"}
+      ]
     }
   ],
   "comfy": [

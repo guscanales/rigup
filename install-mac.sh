@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# RigUp installer for Apple Silicon Macs (LLMs only for now). Safe to re-run.
+# RigUp installer for Apple Silicon Macs. Safe to re-run.
 #
 #   ./install-mac.sh                       install with defaults
 #   RIGUP_PORT=9000 ./install-mac.sh       dashboard on another port
 #   RIGUP_DATA=/Volumes/big ./install-mac.sh   keep models on another disk
 #
-# Installs llama.cpp (Homebrew) and a login service running the dashboard. Models are NOT
-# downloaded here; the dashboard fetches each one the first time you use it.
+# Installs llama.cpp and uv (Homebrew) and a login service running the dashboard. Models are NOT
+# downloaded here; the dashboard fetches each one the first time you use it. ComfyUI installs itself
+# (with uv) the first time you switch to it.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -20,8 +21,8 @@ command -v brew >/dev/null || { echo "Install Homebrew first (https://brew.sh), 
 PY=/usr/bin/python3   # macOS's own Python is enough: the dashboard uses the standard library only
 
 # 1. The engine: llama.cpp with Metal, from Homebrew
-say "Installing llama.cpp"
-brew install llama.cpp
+say "Installing llama.cpp and uv"
+brew install llama.cpp uv
 mkdir -p "$RIGUP_DATA"
 
 # 2. Dashboard password (stored hashed in $RIGUP_DATA/config.json)
@@ -63,6 +64,7 @@ Done. Open the dashboard on this Mac or from any machine on your network:
 
   Dashboard   http://$IP:$RIGUP_PORT     (any username, the password you just set)
   LLM API     http://$IP:8000/v1      (up while a Lab model is running)
+  ComfyUI     http://$IP:8188         (up in ComfyUI mode)
 
 Pick a model in the dashboard. Its files download on first use.
 If macOS asks whether Python may accept incoming connections, allow it so other devices can connect.
