@@ -1,8 +1,8 @@
 # RigUp
 
-Got a gaming GPU? Run one install script and start using local AI models: chat, coding, images and video, all switched from a web page.
+Turn a gaming PC or a MacBook/Mac Mini into an AI server. Run one install script and start using local AI models: chat, coding, images and video, all switched from a web page.
 
-Also runs on Apple Silicon Macs (LLMs for now): see [On a Mac](#on-a-mac).
+On a gaming PC with an NVIDIA card you get everything. On an Apple Silicon Mac you get the chat and coding models for now: see [On a Mac](#on-a-mac).
 
 No setup, no config files to learn. RigUp installs the driver, Docker and the engines, then gives you a dashboard. Pick a model and it downloads whatever is missing, stops whatever currently holds the card, and starts the new one. A gaming card holds one big model at a time, so that's how RigUp runs them. The recipes (launch flags, quantization, context length) are tuned for 24 GB cards and come with suggested options for 16 GB and 12 GB cards.
 
@@ -211,7 +211,7 @@ Three things to know first:
 
 - **The model name is the recipe id:** `qwen3-coder-30b`, `qwen3.6-reap`, `qwen3.8-27b`, and so on. The dashboard's Open panel shows the one that's running.
 - **Only the running model answers.** If an agent asks for a model that isn't loaded, the request fails. Switch to it in the dashboard first.
-- **No API key is checked.** Harnesses that insist on one accept any placeholder. Keep port 8000 off the internet (see [Security](#security)).
+- **The API key is optional.** By default none is checked, and harnesses that insist on one accept any placeholder. To require one, set **LLM API key** in the dashboard's Open panel; it applies from the next model start, on both the Linux and Mac versions. In the examples below, `local` stands for your key.
 
 **Which model for agents:** `qwen3-coder-30b` is the fastest with solid tool calling. `qwen3.6-reap` is the best all-rounder, with 256K context and image input, which helps with big repos and screenshots. `qwen3.8-27b` is the smartest, but its 38K context is too small for agents with large system prompts like Claude Code; use `qwen3.8-27b-gguf` (256K) for that.
 
@@ -409,7 +409,7 @@ Add an entry to `recipes.json` and restart the service (`sudo systemctl restart 
 
 The dashboard can start, stop and delete things, so it always asks for a password. It uses HTTP basic auth without TLS, which is fine on a home network or over a VPN such as Tailscale. Don't expose port 8090 to the internet.
 
-ComfyUI (:8188) and the LLM API (:8000) have no login of their own, so keep the server on a trusted network or behind a firewall. Open WebUI (:3000) has its own accounts; the first account you create becomes the admin.
+ComfyUI (:8188) has no login of its own, and the LLM API (:8000) only checks a key if you set one in the dashboard (Open panel, **LLM API key**), so keep the server on a trusted network or behind a firewall. On Linux, after setting a key, enter the same key in Open WebUI under Admin Settings > Connections, or its chat stops getting answers. Open WebUI (:3000) has its own accounts; the first account you create becomes the admin.
 
 Auto-tune is the only feature that contacts anything besides Hugging Face downloads. It reads `recipes.json` from this GitHub repo and the public Hugging Face model list. New models from the GitHub list run with the launch flags written there, the same as if you had run `git pull`. Recipes you already have only change when you update your copy.
 

@@ -134,6 +134,8 @@ function render() {
     <div style="min-width:0"><div class="app-name"><span class="led ${on ? '' : 'idle'}"></span>${esc(n)}</div><div class="app-host">${esc(url.replace('http://', ''))} · ${esc(sub)}</div></div>
     ${copy ? `<button class="link-act" data-copy="${esc(url)}">Copy URL</button>` : `<a class="link-act" href="${esc(url)}" target="_blank" rel="noopener">Open ↗</a>`}</div>`).join('');
   $('#tok-state').textContent = S.hf_token ? 'saved' : mac ? 'only needed for gated models' : 'needed for FLUX 3 Klein and LTX-2.5';
+  $('#key-state').textContent = S.api_key ? `clients must send it on :${S.ports.llm} as a Bearer token. Applies from the next model start`
+    : `none: anyone who can reach :${S.ports.llm} can use it. Save an empty key to remove one`;
 
   const log = $('#g-log');
   log.textContent = (S.log.join('\n') || 'Nothing yet.') + (S.error || note ? '\n\nERROR: ' + (note || S.error) : '');
@@ -164,11 +166,12 @@ document.addEventListener('click', async ev => {
   post({ switch: 'api/switch', get: 'api/install', rm: 'api/uninstall' }[verb], { to: id, id });
 });
 
-$('#token').onsubmit = async e => {
-  e.preventDefault();
-  await post('api/token', { token: $('#tok').value });
-  $('#tok').value = '';
-};
+for (const [form, input, field] of [['#token', '#tok', 'hf_token'], ['#apikey', '#key', 'api_key']])
+  $(form).onsubmit = async e => {
+    e.preventDefault();
+    await post('api/token', { [field]: $(input).value });
+    $(input).value = '';
+  };
 
 document.addEventListener('pointermove', e => {
   const glow = $('#cursorGlow'); glow.style.left = e.clientX + 'px'; glow.style.top = e.clientY + 'px';

@@ -12,7 +12,7 @@ API (all behind the dashboard password; POSTs need the X-Requested-With header):
   POST /api/stop        free the GPU
   POST /api/install     {"id": ...}   download only
   POST /api/uninstall   {"id": ...}   delete files no other installed model uses
-  POST /api/token       {"token": ...}   Hugging Face token for gated models
+  POST /api/token       {"hf_token": ...} and/or {"api_key": ...}   Hugging Face token; key the LLM API requires (empty = none)
   POST /api/autotune    check for new releases, then find the best settings for each installed Lab model on this GPU
 """
 import base64, getpass, hashlib, hmac, json, os, re, secrets, shutil, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request
@@ -229,8 +229,8 @@ def uninstall(m):
 
 
 # ---------- docker ----------
-def sh(*cmd, check=True):
-    r = subprocess.run(cmd, capture_output=True, text=True)
+def sh(*cmd, check=True, env=None):
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if check and r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-600:])
     return r.stdout.strip()
@@ -246,9 +246,17 @@ def running():
     return {name.removeprefix("rigup-"): mode for name, mode in (l.split() for l in out.splitlines() if l.strip())}
 
 
+def local(url, body=None):
+    """Request to our own engines, with the LLM API key when one is set."""
+    req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
+    if config().get("api_key"):
+        req.add_header("Authorization", "Bearer " + config()["api_key"])
+    return req
+
+
 def up(url):
     try:
-        with urllib.request.urlopen(url, timeout=2) as r:
+        with urllib.request.urlopen(local(url), timeout=2) as r:
             return r.status == 200
     except Exception:
         return False
@@ -286,6 +294,8 @@ def run_cmd(mid, args=None):
     args = args or args_for(m)
     base = ["docker", "run", "-d", "--name", "rigup-llm", "--label", f"rigup.mode={mid}", "--gpus", "all", "--ipc", "host",
             "-p", f"{PORTS['llm']}:8000", "-v", f"{DATA}/models:/models:ro"]
+    if config().get("api_key"):   # both engines read it from the environment, which keeps it out of `ps`
+        base += ["-e", "VLLM_API_KEY" if m["engine"] == "vllm" else "LLAMA_API_KEY"]
     if m["engine"] == "vllm":
         os.makedirs(os.path.join(DATA, "cache/vllm"), exist_ok=True)
         return base + ["-v", f"{DATA}/cache/vllm:/root/.cache/vllm", "-e", "HF_HUB_OFFLINE=1", m.get("image") or IMAGES["vllm"],
@@ -300,7 +310,8 @@ def start_native(mid, args):
     args = [models + a[len("/models"):] if a.startswith("/models/") else a for a in args]
     cmd = [LLAMA_SERVER, *args, "--alias", mid, "--host", "0.0.0.0", "--port", "8000"]
     with open(ENGINE_LOG, "w") as out:
-        p = subprocess.Popen(cmd, cwd=DATA, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        key = {"LLAMA_API_KEY": config()["api_key"]} if config().get("api_key") else {}
+        p = subprocess.Popen(cmd, cwd=DATA, stdout=out, stderr=subprocess.STDOUT, start_new_session=True, env={**os.environ, **key})
     write_json(ENGINE, {"pid": p.pid, "id": mid})
     return p
 
@@ -324,7 +335,8 @@ def switch(mid, args=None):
             log(f"pulling {image} (one time, several GB; vLLM is ~28 GB)")
             sh("docker", "pull", "-q", image)
         log(f"starting {name}")
-        cid = sh(*cmd)
+        key = config().get("api_key", "")
+        cid = sh(*cmd, env={**os.environ, "VLLM_API_KEY": key, "LLAMA_API_KEY": key})
         alive = lambda: sh("docker", "inspect", "-f", "{{.State.Running}}", cid, check=False) == "true"
 
         def logs():
@@ -470,8 +482,7 @@ def measure(mid):
     best = 0
     for _ in range(2):
         t = time.time()
-        req = urllib.request.Request(f"http://127.0.0.1:{PORTS['llm']}/v1/chat/completions", body, {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=600) as r:
+        with urllib.request.urlopen(local(f"http://127.0.0.1:{PORTS['llm']}/v1/chat/completions", body), timeout=600) as r:
             n = json.load(r)["usage"]["completion_tokens"]
         best = max(best, n / (time.time() - t))
     return round(best)
@@ -580,7 +591,7 @@ def snapshot():
     tuned = {k: {f: v for f, v in t.items() if f != "args"} for k, t in read_json(TUNED, {}).items() if g and t.get("gpu") == g["name"]}
     models = [{k: v for k, v in m.items() if k not in ("files", "args")} | {"installed": installed(m)} for m in MODELS.values()]
     return {"gpu": g, "tier": tier, "mode": mode, "healthy": healthy, "disk": {"free_gb": round(du.free / 1e9), "total_gb": round(du.total / 1e9)},
-            "models": models, "ports": PORTS, "hf_token": bool(config().get("hf_token")), "now": time.time(),
+            "models": models, "ports": PORTS, "hf_token": bool(config().get("hf_token")), "api_key": bool(config().get("api_key")), "now": time.time(),
             "tuned": tuned, "releases": read_json(RELEASES, {}), "repo": REPO, "platform": "mac" if MAC else "linux", "tiers": TIERS,
             **{k: state[k] for k in ("busy", "target", "error", "log", "dl")}}
 
@@ -640,7 +651,7 @@ class Handler(BaseHTTPRequestHandler):
             path = self.path.split("?")[0]
             mid = body.get("to") or body.get("id")
             if path == "/api/token":
-                save_config(hf_token=body.get("token", "").strip())
+                save_config(**{k: body[k].strip() for k in ("hf_token", "api_key") if isinstance(body.get(k), str)})
                 return self.send(200, {"ok": True})
             if path == "/api/stop":
                 job("stopping", None, stop_gpu)

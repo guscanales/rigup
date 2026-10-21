@@ -257,7 +257,7 @@ button.lab-go[data-small].arm { color: var(--bad); }
 .token { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .token input { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 999px; padding: 7px 12px; min-width: 0; }
 .token input:focus { outline: none; border-color: var(--accent); }
-.token #tok-state { grid-column: 1 / -1; text-transform: none; }
+.token .dim:last-child { grid-column: 1 / -1; text-transform: none; }
 @media (max-width: 900px) {
   .nav { flex-wrap: wrap; }
   .lab-acts { grid-column: 1 / -1; flex-direction: row; justify-content: flex-start; }
