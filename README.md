@@ -127,7 +127,7 @@ RigUp also runs on Apple Silicon Macs (M1 or newer): the LLMs (chat, coding agen
 
 ![RigUp on a Mac](docs/dashboard-mac.png)
 
-*Qwen3 Coder 30B on an M4 Pro Mac with 24 GB.*
+*ComfyUI running on an M4 Pro Mac with 24 GB, next to the LLMs it can switch to.*
 
 ```bash
 git clone https://github.com/guscanales/rigup.git

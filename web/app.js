@@ -126,7 +126,7 @@ function render() {
     ['Dashboard', `http://${host}:${location.port || 80}`, true, 'this page'],
     ['Open WebUI', `http://${host}:${S.ports.webui}`, true, llmUp ? 'chat with the Lab model' : 'needs a Lab model for answers'],
     ['LLM API', `http://${host}:${S.ports.llm}/v1`, llmUp, llmUp ? `model "${mode}"` : 'needs a Lab model', true],
-    ['ComfyUI', `http://${host}:${S.ports.comfy}`, comfyUp, comfyUp ? 'images and video' : 'needs ComfyUI mode'],
+    ['ComfyUI', `http://${host}:${S.ports.comfy}`, comfyUp, comfyUp ? (mac ? 'images' : 'images and video') : 'needs ComfyUI mode'],
   ].filter(([n, url]) => Object.values(S.ports).includes(+url.split(':')[2].split('/')[0]) || n === 'Dashboard');
   $('#g-links').innerHTML = links.map(([n, url, on, sub, copy]) => `<div class="link-row ${on ? '' : 'off'}">
     <span class="port mono">:${esc(url.split(':')[2].split('/')[0])}</span>
